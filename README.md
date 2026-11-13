@@ -7,7 +7,7 @@
 [![Tests](https://github.com/anopows/songfinder/actions/workflows/tests.yml/badge.svg)](https://github.com/anopows/songfinder/actions/workflows/tests.yml)
 [![Live website](https://img.shields.io/badge/site-songfinder.andi.sh-E8B44C)](https://songfinder.andi.sh)
 
-<p align="center"><img src="docs/images/result.png" alt="Songfinder identifies Everybody Loves My Baby by Nirav Sanghani and the Pacific Six, with a Bandcamp link, 92.6 percent speed and a start position of 0:02." width="340"></p>
+<p align="center"><img src="docs/images/v0.2.0/match-phone.jpg" alt="Songfinder identifies Everybody Loves My Baby by Nirav Sanghani and the Pacific Six, with a Bandcamp link, 92.6 percent speed and a start position of 0:02." width="340"></p>
 
 The screenshot uses a public sample. No visitor recordings are included in this repository.
 

@@ -71,7 +71,7 @@ function choose(f){
  if(f.size>bootstrap.max_bytes)return fail("The file is too large. The limit is "+Math.floor(bootstrap.max_bytes/1024/1024)+" MB.");
  if(!f.size)return fail("That file is empty. Please choose another file.");
  if(uploadJob)api("/api/clips/"+uploadJob.id+"/cancel",{}).catch(()=>{});
- selectedFile=f;uploadJob=null;$("err").hidden=true;$("uploaderr").hidden=true;$("up").hidden=true;
+ selectedFile=f;uploadJob=null;$("title").disabled=false;$("artist").disabled=false;$("bar").value=0;$("upt").textContent="Uploading…";$("err").hidden=true;$("uploaderr").hidden=true;$("up").hidden=true;
  $("find").textContent="Find the song";$("find").disabled=false;$("changefile").disabled=false;
  $("filename").textContent=f.name;$("filesize").textContent=(f.size/1024/1024).toFixed(1)+" MB";show("confirm");
 }
@@ -113,6 +113,7 @@ $("confirmform").onsubmit=async event=>{
  try{
   if(!verified)await verification();
   if(!uploadJob)uploadJob=await api("/api/clips",{size:selectedFile.size,name:selectedFile.name,title:$("title").value,artist:$("artist").value});
+  $("title").disabled=true;$("artist").disabled=true;
   await sendFile(selectedFile,uploadJob);
   await api("/api/clips/"+uploadJob.id+"/complete",{});
   remember({id:uploadJob.id,clip_key:uploadJob.id,name:selectedFile.name,created:Date.now()/1000});location.href="/c/"+uploadJob.id;

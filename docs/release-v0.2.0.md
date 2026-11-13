@@ -32,7 +32,7 @@ parts, networkless sandbox decode and admin-only audio boundary remain in place.
 
 ## Measured before deployment
 
-Both the private implementation and reviewed public export must pass the same suite:
+Both the private implementation and reviewed public export pass the same suite:
 65 Python tests and eight frontend tests. Regressions cover A1–A8, independent retry
 limits, resume ownership, index pruning and the new confirmation/error flow.
 
@@ -56,8 +56,41 @@ The preview positives use transformations of the same audio; this is not a blind
 
 ## Live deployment verification
 
-Pending the idle-queue deployment and public-site browser checks; this section will be
-updated with observed results before the v0.2.0 release is published.
+The release was deployed from an allowlisted archive built in the private canonical
+checkout. The API and worker were restarted only after `/healthz` returned a healthy,
+empty queue. A private SQLite backup passed an isolated restore check before deployment.
+Five·six remained HTTP 200. All 42 application, test, evaluation-tool and package files
+were compared byte-for-byte across both checkouts and production.
+
+Verified on the public site:
+
+- Normal-speed public Johnny Hodges sample: exact match, 6.04 s processing.
+- Browser upload of the public Pacific Six slowed sample: exact match, correct performer,
+  92.6%, start 0:02, 3.52 s processing with the existing server cache.
+- Browser retained-audio retry: exact match in 3.02 s processing; the original and retry
+  appeared as one recent-search entry. These warm-cache timings are not cold discovery.
+- The file chooser opened confirmation without starting an upload. Yes/No messages,
+  automatic clue opening after No, link copying and original-speed rendering worked.
+- A generated non-catalogue sample reached the 360 s timeout state, with retained-audio
+  clues automatically open. This supplies the real no-match-state screenshots; it was
+  not a live demonstration of an ordinary clean no-match.
+- [Production HTTPS transport check](../benchmarks/production-upload-v0.2.0.json): 8 MiB
+  uploaded in **128.05 s at 0.524 Mbit/s** through the public route, then cancelled
+  without recognition. This exceeds the former per-part total deadline.
+- New-upload rate limiting returned 429 as expected. A retained-audio retry still worked
+  under its independent limit. Cancellation, different-owner retry denial, anonymous
+  admin/audio denial, homepage/private-route indexing and admin metrics were checked.
+- Favicon, sharing image and the permanent public example returned successfully.
+
+[Phone and desktop screenshots](screenshots-v0.2.0.md) cover the homepage, confirmation,
+progress, exact match and timeout/no-match state. Chrome's measured CSS viewports were
+390 × 844 and 1440 × 1000; full-page images can be taller, and scrollbar exclusion can
+make an image 15 px narrower. These are desktop-browser responsive checks, not Android tests.
+
+Regression-only evidence includes clean no-match/title-containing-"Failed" classification,
+5,000-reference stage ordering, expanded-query discovery, quiet-window replacement,
+queue saturation, simultaneous disk reservations, refusal waits exceeding the budget,
+session expiry, deliberate stalled-stream rollback and the index-pruning race.
 
 ## Remaining work
 
