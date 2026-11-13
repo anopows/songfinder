@@ -1,0 +1,20 @@
+{
+  "sample": "Public Pacific Six sample, pitch-preserving slowdown to 92.6%",
+  "title": "Everybody Loves My Baby",
+  "artist_clue": null,
+  "empty_cache": true,
+  "seconds": 79.64,
+  "decision": "exact",
+  "artist": "Nirav Sanghani and the Pacific Six",
+  "url": "https://pacificsixjazz.bandcamp.com/track/everybody-loves-my-baby",
+  "rate": 0.92594,
+  "fingerprints_sent": 0,
+  "provider_issues": [
+    {
+      "source": "bandcamp",
+      "kind": "reference_unavailable"
+    }
+  ],
+  "environment": "Local macOS, two matching workers, live catalogue/network access",
+  "limitation": "One successful cold title-only search; provider ordering, availability, machine and network affect elapsed time."
+}

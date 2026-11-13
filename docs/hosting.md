@@ -90,20 +90,24 @@ private test audio is distributed with this repository.
 - Up to 500 MiB per upload, in ordered 8 MiB chunks; the UI labels this 500 MB.
 - The first ten minutes of sound are extracted; decoding has a 90-second deadline.
 - Six-minute deadline per processing job, including decode. Queue time is additional.
-- Ten pending jobs; five uploads per IP per hour, twenty per day, one hundred globally per day.
+- New uploads/retries pause when ten searches are queued or running. Already admitted uploads always complete into the queue, so the queue can temporarily exceed ten.
+- Five new uploads per IP per hour, twenty per day. Retained-audio retries have a separate twenty-per-hour, sixty-per-day limit. All searches share the global limit of one hundred per day.
+- Three concurrent uploads per IP, twenty globally. Empty reservations expire after three minutes; idle transfers expire after five, checked on admission as well as during cleanup.
+- Each part can take as long as needed while making progress; ninety seconds without incoming bytes triggers a retry. The browser resumes at the server's committed offset after a dropped connection. Keep the page open during upload; if retries stop, press **Resume upload**.
 - The worker shares persistent recognition budgets across jobs: Shazam 400 calls/day
   at a 15-second gap; AudD 5 calls/day at a 2-second gap. Set the corresponding
   `SONGFINDER_*_DAILY` values to lower them if needed. Individual searches are also bounded.
 - Uploaded video is removed after extraction. Extracted audio expires after 14 days.
 - Results expire after 90 days. Unlisted result links expose file name, supplied title,
   result and feedback; private audio and diagnostic traces require admin authentication.
-- The reference cache is pruned to 4 GiB. New uploads pause below 6 GiB of free disk.
+- Disposable references are pruned toward 4 GiB by last use. Seeded and audio-confirmed references are protected and may keep the cache above that soft target.
+- Admission subtracts outstanding upload reservations and the proposed file size from current free disk and requires at least 6 GiB remaining. In-flight uncommitted bytes are conservatively counted twice.
 
 ## Updates and recovery
 
 Run tests first. Wait until `/healthz` shows `queue: 0`, update the checkout, and run
 `sudo bash deploy/install.sh` again. Active searches are interrupted by a restart;
-completed results remain in SQLite.
+completed results remain in SQLite. Workers requeue interrupted jobs with retained media (up to two automatic recoveries).
 
 ```sh
 curl -fsS https://songfinder.example.com/healthz
@@ -123,3 +127,5 @@ See [release validation](release-2026-11-13.md) for database backup/restore chec
 optional fingerprint-index migration, retained-audio retry ownership and new admin metrics.
 Restart the API and worker together after upgrading. The new database columns are
 added automatically; existing results remain readable. Runtime secrets do not change.
+
+The permanent `/example` result contains only metadata from a public sample. It is a frozen application fixture, so normal visitor-result retention does not remove it. It has no retained audio or feedback/retry controls.

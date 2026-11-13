@@ -1,15 +1,22 @@
 # song·finder
 
-**Find the recording behind a video — even when it has been slowed down or sped up.**
+**Find the exact recording behind a video or audio clip, even when it has been slowed down or sped up.**
 
-## [Try song·finder → songfinder.andi.sh](https://songfinder.andi.sh)
+[Try song·finder → songfinder.andi.sh](https://songfinder.andi.sh)
+
+[![Tests](https://github.com/anopows/songfinder/actions/workflows/tests.yml/badge.svg)](https://github.com/anopows/songfinder/actions/workflows/tests.yml)
+[![Live website](https://img.shields.io/badge/site-songfinder.andi.sh-E8B44C)](https://songfinder.andi.sh)
+
+<p align="center"><img src="docs/images/result.png" alt="Songfinder identifies Everybody Loves My Baby by Nirav Sanghani and the Pacific Six, with a Bandcamp link, 92.6 percent speed and a start position of 0:02." width="340"></p>
+
+The screenshot uses a public sample. No visitor recordings are included in this repository.
 
 Upload a video or audio recording. Songfinder compares musical passages with candidate
 recordings and returns listening links, the speed used in your clip, and where it starts
 in the recording. No account is needed.
 
 It is useful when knowing the song title is not enough: another performance, cover,
-live version, or reissue can sound similar but feel different to practise with.
+live version, or reissue can sound similar but be a different recorded performance.
 
 - **Video or audio:** uploads up to 500 MB; analyses the first ten minutes.
 - **Speed-aware matching:** searches both pitch-preserving tempo changes and changes
@@ -17,20 +24,16 @@ live version, or reissue can sound similar but feel different to practise with.
 - **Spotify first when confirmed:** other listening sources include Apple Music,
   Bandcamp, YouTube, Deezer, SoundCloud and Internet Archive. The available links
   depend on the recording and evidence.
-- **Evidence-aware results:** exact and probable matches are distinguished. A
+- **Evidence-aware results:** exact and likely matches are distinguished. A
   recognizer's title suggestion is checked against audio before being accepted.
 - **Saved results:** keep an unlisted result link, return later, and leave feedback.
 - **Retry without uploading again:** the original browser can edit the title or performer
   and reuse retained audio for up to 14 days. Cancel a queued or running search.
 
-<p align="center"><img src="docs/images/result.png" alt="Songfinder identifies Everybody Loves My Baby by Nirav Sanghani and the Pacific Six, with a Bandcamp link, 92.6 percent speed and a start position of 0:02." width="340"></p>
-
-The screenshot uses a public sample. No visitor recordings are included in this repository.
-
 ## Use the website
 
 1. Open **[songfinder.andi.sh](https://songfinder.andi.sh)**.
-2. Add the title or performer if you know it, then choose your file. At least 20 seconds of music helps.
+2. Choose your file, add a title or performer if you know it, then press **Find the song**. About 20 seconds of music is enough.
 3. Keep the result link while the search runs. A search can take up to six minutes;
    time spent waiting in the queue is additional.
 4. Listen to the proposed recording and use **Yes / No** to give feedback. Use **Search again** to try a different clue without uploading again.
@@ -38,16 +41,7 @@ The screenshot uses a public sample. No visitor recordings are included in this 
 A match identifies a recorded performance; it does not promise a particular mastering,
 pressing, audio quality, or availability in your country. Difficult clips can remain unresolved.
 
-## Privacy and limits
-
-The uploaded video is removed after its sound is extracted. Audio is held privately for
-14 days for debugging, then deleted. A recognition service may receive a fingerprint or
-short audio excerpt. Results expire after 90 days. Anyone holding a result URL can see its
-result, file name, supplied title and feedback, but cannot play the private audio.
-
-The shared service limits uploads and processing to keep it available. Online YouTube
-fetching is currently disabled on the hosted server; previously cached reference features
-can still be compared. [Privacy and operating details](docs/hosting.md#data-and-limits).
+[Privacy, retention and operating limits](docs/hosting.md#data-and-limits).
 
 ## Run locally
 
@@ -95,7 +89,7 @@ The core matcher, CLI, public API, separate queue worker, and deployment templat
 included. Private datasets, reference caches, credentials, and historical debug reports
 are excluded. The first public commit is a clean snapshot of the deployed implementation.
 
-See the [release validation and known limits](docs/release-2026-11-13.md),
+See the [v0.2.0 release validation and known limits](docs/release-v0.2.0.md),
 [How matching works](docs/matching.md) and the [improvement roadmap](docs/roadmap.md).
 Report reproducible problems in [GitHub Issues](https://github.com/anopows/songfinder/issues);
 please avoid posting private recordings, result URLs, credentials or personal information.

@@ -1,0 +1,9 @@
+{
+  "bytes": 8388608,
+  "seconds": 128.52,
+  "mbit_per_second": 0.522,
+  "interrupted_part_rolled_back": true,
+  "resumed": true,
+  "completed": true,
+  "target": "local actual HTTP server"
+}

@@ -27,6 +27,7 @@ class Result:
     error: str = ""
     cached: bool = False
     skipped: bool = False
+    issue: str = ""
 
     @property
     def decision(self) -> str:
@@ -80,15 +81,15 @@ def evaluate_candidate(query: Query, c: Candidate, cache: FeatureCache, quick: b
         if evaluation.decision=='exact':cache.protect(c.key)
         return Result(c,evaluation,cached=cached)
     except Blocked as e:
-        return Result(c, error=f"blocked: {e}")
+        return Result(c, error=f"blocked: {e}",issue="blocked")
     except NoAudio as e:
         return Result(c, error=f"no audio: {e}")
     except Exception as e:                # one bad candidate must not end the run
-        return Result(c, error=f"{type(e).__name__}: {e}")
+        return Result(c, error=f"{type(e).__name__}: {e}",issue="reference_unavailable")
 
 
 def gather(title: str, artist: str | None, sources: list[str],
-           log: Callable[[str], None]) -> list[Candidate]:
+           log: Callable[[str], None], on_issue=None) -> list[Candidate]:
     """Search all sources at once; interleave full-audio sources, previews last."""
     found: dict[str, list[Candidate]] = {}
 
@@ -101,6 +102,7 @@ def gather(title: str, artist: str | None, sources: list[str],
     with ThreadPoolExecutor(max_workers=max(1, len(sources))) as pool:
         for name, cands, err in pool.map(run, sources):
             found[name] = cands
+            if err and on_issue:on_issue(name,"catalogue_unavailable")
             log(f"  {name:<10} {len(cands):>4} candidates" + (f"   ({err})" if err else ""))
     full = [n for n in sources if SOURCES[n].audio_kind == "full"]
     prev = [n for n in sources if SOURCES[n].audio_kind != "full"]
@@ -114,7 +116,7 @@ def gather(title: str, artist: str | None, sources: list[str],
 
 def identify(query: Query, candidates: list[Candidate], cache: FeatureCache,
              workers: int = 4, exhaustive: bool = False, quick: bool = False,
-             log: Callable[[str], None] = lambda s: None) -> list[Result]:
+             log: Callable[[str], None] = lambda s: None, on_issue=None) -> list[Result]:
     """Evaluate candidates; stop at the first exact match unless `exhaustive`.
 
     `quick` is for long, unfocused lists (the whole index, every version of a title).
@@ -128,7 +130,9 @@ def identify(query: Query, candidates: list[Candidate], cache: FeatureCache,
     def work(c: Candidate) -> Result:
         if stop.is_set():
             return Result(c, skipped=True)
-        return evaluate_candidate(query, c, cache, quick=quick)
+        result=evaluate_candidate(query,c,cache,quick=quick)
+        if result.issue and on_issue:on_issue(c.source,result.issue)
+        return result
 
     results: list[Result] = []
     t0 = time.monotonic()

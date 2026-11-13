@@ -85,13 +85,13 @@ def process(job):
     except TimeoutError:
         result=json.loads(store.get(jid)['result'])
         if stage=='decode':
-            result={'verdict':'error','message':'Reading the sound from this file took too long. Try a shorter video or an audio file.'}
+            result={'verdict':'error','error_kind':'file','message':'Reading the sound from this file took too long. Try a shorter video or an audio file.'}
         elif result.get('verdict') not in ('exact','probable'):
             result={'verdict':'timeout','message':'We reached the search time limit without confirming a match. Try a clearer clip or add the song title.'}
         store.update(jid,result=json.dumps(result),error=stage+' time limit reached')
     except Exception as exc:
         message='We could not read the sound from this file. Try another video or recording.' if stage=='decode' else 'This search could not finish. You can try again using the retained audio.'
-        store.update(jid,result=json.dumps({'verdict':'error','message':message}),error=type(exc).__name__+': '+str(exc)[:1000])
+        store.update(jid,result=json.dumps({'verdict':'error','error_kind':'file' if stage=='decode' else 'search','message':message}),error=type(exc).__name__+': '+str(exc)[:1000])
     finally:
         (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
         store.update(jid,status='done',finished=time.time())

@@ -1,95 +1,25 @@
-# Improvement roadmap
+# Roadmap and shipped work
 
-Keep the deployed API and worker while testing recognition changes independently.
-The highest priorities are trustworthy results and predictable search time. The original
-sequence is retained below; the release status here takes precedence.
+## Shipped
 
-## Implemented in the November 13 follow-up
+- Confirmed recording identity and performer-aware links; recognizer hints cannot replace the winning performer.
+- Persistent relative-pitch/time fingerprint shortlist, followed by audio verification. Full-cache fallback runs after normal and speed-corrected recognition and the fallback recognizer.
+- Separate discovery and active-audio hold-out passages, detail/attack checks, and a tightly constrained near-identity path for short previews.
+- Expanded, spaced Bandcamp title-only queries with a separate full-length candidate allowance. No individual song is hard-coded.
+- Structured provider-issue events, distinct incomplete/no-match states, and recognition waits bounded by the remaining job budget.
+- Expiring upload reservations, stable ownership across session renewal, stall-only upload timeouts, committed-offset resume, asynchronous disk writes, and lock cleanup.
+- Disk admission accounts for outstanding uploads. Admitted completed uploads keep their place even if the search queue fills.
+- Owner-authorized retries with separate limits, cancellation, Yes/No feedback, automatic clue opening after No, and one recent-search row per original clip.
+- Upload-first confirmation flow, phone/desktop layout, permanent public example, sharing image, favicon, private admin metrics and deletion, and SQLite backup/restore validation.
+- Seeded/confirmed reference protection and index pruning that checks current files while holding its write transaction.
 
-Confirmed labels and performer-aware link hints; an optional fingerprint shortlist with
-full-scan fallback; disjoint confirmation with detail/attack checks; owner-authorized
-retained-audio retries, artist hints, cancellation and session renewal; distinct incomplete
-result states; indexable homepage with sharing metadata; private aggregate metrics and
-SQLite backup/restore validation. See [release evidence](release-2026-11-13.md).
+See [v0.2.0 evidence](release-v0.2.0.md) and [initial public release](release-2026-11-13.md).
 
-The evaluation harness and fresh public-preview comparisons are implemented. A larger
-human-labelled field evaluation, speech detection/edit-aware passage selection, actual
-Android network-interruption tests and additional providers remain follow-up work.
-The frozen synthetic benchmark still contains a false exact match; do not claim perfect
-performance-level identification or interpret the earlier investigated 40 clips as blind accuracy.
+## Remaining
 
-## 1. Preserve the identity of the confirmed recording
-
-The former web formatter could replace a confirmed candidate's artist/title with an
-unverified recognizer hint when the song title matches. A constructed report with a
-confirmed Billy May performance and an earlier Charlie Barnet hint reproduces the
-wrong displayed artist, even though the reference link still belongs to the winner.
-This was a result-label bug; the reproduction does not establish that either artist
-was incorrectly matched by the audio engine in that test.
-
-Bind displayed identity to the audio-confirmed candidate. Only adopt recognizer
-metadata after establishing that it describes the same recording. Add regression
-cases where a known song has multiple performers and the first recognition lead
-fails verification.
-
-## 2. Build an independent evaluation set
-
-Freeze the engine and reference catalogue, then evaluate recordings that were not used
-to tune thresholds. Separate empty-cache discovery from warm-cache recognition. Include
-different performances of the same arrangement, short previews, speech, edits, deliberate
-speed changes and music absent from the available catalogue.
-
-Measure false exact matches, recall, median and tail latency, source outages, requests
-per clip and resource use. Retain the existing cases as regression tests. Establish
-labels by listening rather than accepting another engine's verdict as ground truth.
-
-## 3. Make known recordings faster to retrieve
-
-The current cache scan grows with the catalogue. Introduce a fingerprint index that
-returns a small candidate shortlist before the full matcher runs. Prioritize previously
-confirmed recordings while retaining broader title lookup. Preserve the full audio
-verification gate; retrieval scores alone must not produce an exact result.
-
-Acceptance: shortlist recall and end-to-end accuracy do not regress as the catalogue
-grows, and tail latency is measured under the hosted service's CPU and memory limits.
-
-## 4. Strengthen performance-level verification
-
-Reserve disjoint passages for verification that cannot choose or refit the initial
-speed/offset estimate. Evaluate fine spectral detail and transient alignment in addition
-to the existing timing-spread and wrong-offset checks. Select clean musical passages,
-avoid speech where possible, and keep passages on one side of detected edits.
-
-Acceptance: reject convincing alternate performances without losing true matches in
-noisy or short recordings. Run each proposed gate as an isolated comparison first;
-more thresholds are not automatically better.
-
-## 5. Help users recover from an incomplete search
-
-Expose distinct states for a related arrangement, an unconfirmed title, provider
-unavailability, timeout and no useful lead. Offer an owner-authorized retry with an
-edited title or artist using retained audio, so visitors need not upload a large video
-again. Add cancellation and reliable session renewal for long-lived tabs.
-
-The frontend currently records Yes/No feedback but does not turn a rejected match into
-a guided correction flow. Improve that flow before adding more input methods.
-
-## 6. Improve service reliability and phone use
-
-Measure recognition failures, queue latency, resource use and source availability.
-Exercise backup restoration, worker recovery, concurrent load alongside other hosted
-apps, and real Android upload behavior on interrupted connections. Consider an additional
-recognition provider only after measuring which misses it can recover and its cost.
-
-Keep unavailable reference sources optional. A home fetcher is a separate reliability
-and access-control project, not a prerequisite for improving the current matcher.
-
-After these checks, consider microphone capture, client-side audio extraction, batch
-uploads and a practice handoff to five·six. For discoverability, allow indexing of the
-homepage and add link-preview metadata while keeping result and admin URLs unindexed.
-
-## Project maintenance
-
-Keep the public source export synchronized with production, add regression cases for
-confirmed failures, document releases, and choose an explicit reuse license before
-presenting the project as open source.
+1. **Independent field evaluation.** Broader human-labelled positives and alternate performances, speech, edits, short excerpts and absent recordings. Separate cold discovery from warm verification. The earlier 40 private clips were known-reference verification, not end-to-end discovery or a blind benchmark.
+2. **Known synthetic false exact.** `6079-alternate` remains documented. The current task did not request tuning this case; avoid claims of perfect performance identification.
+3. **Index frequency limits (A9, deferred).** A per-hash posting cap needs a measured threshold and retrieval-recall evaluation on a larger catalogue. Arbitrarily dropping common hashes could remove rare recordings from the shortlist. Current shortlist size is bounded; full verification remains authoritative, but postings can still grow.
+4. **Real Android network interruption.** The current release tests actual throttled HTTP transfer, mocked response loss and desktop Chrome at phone width. This does not establish behavior through Android background suspension or a mobile carrier change.
+5. **Speech/edit-aware selection and additional sources.** Activity-aware windows now handle quiet passages; speech/music separation and edit boundaries require further evaluation. Catalogue coverage and provider availability remain limiting factors.
+6. **Repository social preview (manual owner step).** The installed `gh repo edit` has no social-preview image option. In GitHub repository Settings → General → Social preview, upload `songfinder/static/share.png`. The website already serves that image in its sharing metadata.

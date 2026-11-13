@@ -12,11 +12,10 @@ STEPS = [
 
 def _speed(rate: float, pitch: float) -> dict:
     if abs(rate - 1) < 0.015:
-        return {"big": "Original", "note": "Played at the original speed.", "tip": ""}
+        return {"big": "Original speed", "note": "", "tip": ""}
     word = "Slowed down" if rate < 1 else "Sped up"
-    how = "pitch kept" if abs(pitch) < 0.3 else "pitch moved with it"
-    return {"big": f"{rate * 100:.1f}%", "note": f"{word}, {how}.",
-            "tip": f"To hear it as in your clip, play the original at {rate:.2f}×."}
+    how = "same pitch" if abs(pitch) < 0.3 else "pitch changed too"
+    return {"big": f"{rate * 100:.1f}%", "note": f"{word}, {how}. Play the original at {rate:.2f}× to match your clip.", "tip": ""}
 
 
 def _summarise(report: dict) -> dict:
@@ -28,7 +27,7 @@ def _summarise(report: dict) -> dict:
     if not rs:
         if any(r.get('decision')=='related' for r in report.get('results',[])):
             return {'verdict':'related','message':'We found a similar arrangement, but could not confirm the same recording. Add the performer or title to try again.'}
-        if report.get('provider_issues') or (report.get('results') and all(r.get('error') for r in report['results'])):
+        if any(isinstance(issue,dict) and issue.get('kind') for issue in report.get('provider_issues',[])):
             return {'verdict':'unavailable','message':'Some music services were unavailable or at their request limit. We could not confirm a recording. Please retry later.'}
         if report.get('shazam_hints'):
             return {'verdict':'unconfirmed','message':'A recognition service suggested a song, but the available audio did not confirm its recording. Add the performer or title to narrow the search.'}

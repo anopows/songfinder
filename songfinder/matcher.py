@@ -154,9 +154,28 @@ class Query:
         # Only discovery passages may select/refine speed, pitch or offset.
         length = min(5.0, d / 6.5)
         n = min(max_windows, max(3, int(d // (2 * length + .3))))
-        cells = np.linspace(0.0, d - (2 * length + .3), n)
-        starts = cells
-        self.holdouts = [(float(t+length+.3), float(t+2*length+.3)) for t in cells]
+        active=(np.abs(self.Qlo).sum(axis=0)>0).astype(float)
+        # Pick disjoint passages using query activity only, never reference scores.
+        # A quiet slot is replaced, and shorter windows allow six useful passages
+        # even when a short clip has a pause. Hold-outs stay independent.
+        active_seconds=float(active.sum()/FPS_LO)
+        length=min(length,active_seconds/(2*n+.5))
+        selected=[]
+        while length>=.75:
+            width=max(1,int(length*FPS_LO));prefix=np.r_[0.,np.cumsum(active)]
+            coverage=(prefix[width:]-prefix[:-width])/width
+            choices=np.flatnonzero(coverage>=.6)/FPS_LO
+            targets=np.linspace(0,max(0,d-length),2*n)
+            selected=[]
+            for target in targets:
+                available=[t for t in choices if all(t+length+.15<=v or v+length+.15<=t for v in selected)]
+                if not available:break
+                selected.append(min(available,key=lambda t:abs(t-target)))
+            if len(selected)==2*n:break
+            length*=.9
+        selected.sort()
+        starts=selected[::2]
+        self.holdouts=[(float(t),float(t+length)) for t in selected[1::2]]
         self.window_len = length
         self.windows: list[tuple[float, float]] = []
         self.W: list[list[np.ndarray]] = []
@@ -440,8 +459,12 @@ def decide(fit: Fit, ver: Verification) -> str:
     if strong and not independent:return "related"
     if strong and ver.timing_spread > MAX_TIMING_SPREAD_S:
         return "related"                # same arrangement, but not this recording
+    # Nearly identical independent detail/attacks are direct evidence even when
+    # a short reference gives a broad null distribution (e.g. a repeating phrase).
+    near_identity=(ver.similarity>=.90 and ver.holdout_similarity>=.90
+                   and ver.detail_similarity>=.85 and ver.onset_similarity>=.80 and ver.z>=PROB_Z)
     if (independent and ver.holdout_similarity >= .45 and ver.detail_similarity >= .25
-            and ver.similarity >= EXACT_SIM and ver.z >= EXACT_Z and fit.n_windows >= EXACT_WINDOWS
+            and ver.similarity >= EXACT_SIM and (ver.z >= EXACT_Z or near_identity) and fit.n_windows >= EXACT_WINDOWS
             and ver.coverage >= EXACT_COVERAGE and ver.overlap_s >= EXACT_OVERLAP_S):
         return "exact"
     return "probable" if strong else "none"

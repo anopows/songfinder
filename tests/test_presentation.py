@@ -29,6 +29,6 @@ def test_wrong_performer_hint_does_not_supply_listening_links():
 
 def test_incomplete_searches_have_distinct_states():
     assert _summarise({'results':[{'decision':'related'}]})['verdict']=='related'
-    assert _summarise({'provider_issues':['unavailable']})['verdict']=='unavailable'
+    assert _summarise({'provider_issues':[{'source':'audd','kind':'budget'}]})['verdict']=='unavailable'
     assert _summarise({'shazam_hints':[{'title':'A Song'}]})['verdict']=='unconfirmed'
     assert _summarise({})['verdict']=='none'

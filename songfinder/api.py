@@ -17,6 +17,27 @@ ADMIN_HASH=os.environ.get('SONGFINDER_ADMIN_HASH','')
 DEV=os.environ.get('SONGFINDER_DEVELOPMENT')=='1' and ORIGIN.startswith('http://127.0.0.1:')
 STATIC=Path(__file__).parent/'static'
 locks={}
+UPLOAD_STALL_SECONDS=90
+
+@contextlib.asynccontextmanager
+async def job_lock(jid):
+    # Count holders AND waiters; removing a held lock would allow concurrent writes.
+    state=locks.setdefault(jid,{'lock':asyncio.Lock(),'users':0})
+    state['users']+=1
+    try:
+        async with state['lock']:yield
+    finally:
+        state['users']-=1
+        if state['users']==0 and locks.get(jid) is state:locks.pop(jid,None)
+
+async def disk_call(fn,*args):
+    # A cancelled request must wait for its disk write before rolling the part back.
+    task=asyncio.create_task(asyncio.to_thread(fn,*args))
+    try:return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await task
+        raise
+
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
@@ -116,6 +137,7 @@ def job_or_404(jid):
 
 @app.get('/')
 @app.get('/c/{jid}')
+@app.get('/example')
 async def page(request:Request):
     content=(STATIC/'index.html').read_text()
     if request.url.path=='/':
@@ -128,7 +150,9 @@ async def page(request:Request):
             '<meta property="og:title" content="song·finder — Find the recording behind your clip">'
             '<meta property="og:description" content="Upload a video or recording. Find the song, a listening link, and its speed in your clip.">'
             f'<meta property="og:url" content="{origin}/">'
-            '<meta name="twitter:card" content="summary">')
+            f'<meta property="og:image" content="{origin}/share.png">'
+            '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
+            '<meta name="twitter:card" content="summary_large_image">')
     return HTMLResponse(content)
 
 @app.get('/robots.txt')
@@ -138,6 +162,16 @@ async def robots():
 @app.get('/sitemap.xml')
 async def sitemap():
     return HTMLResponse('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+html.escape(ORIGIN)+'/</loc></url></urlset>',media_type='application/xml')
+
+@app.get('/api/example')
+async def example():return JSONResponse(json.loads((STATIC/'example.json').read_text()))
+
+@app.get('/favicon.svg')
+@app.get('/favicon.ico')
+async def favicon():return FileResponse(STATIC/'favicon.svg',media_type='image/svg+xml')
+
+@app.get('/share.png')
+async def share_image():return FileResponse(STATIC/'share.png',media_type='image/png')
 
 @app.get('/app.js')
 async def script():return FileResponse(STATIC/'app.js',media_type='text/javascript')
@@ -174,7 +208,6 @@ async def create(request:Request):
     size=body.get('size')
     if isinstance(size,bool) or not isinstance(size,int) or not 0<size<=store.MAX_BYTES:
         raise HTTPException(413,'Choose a file up to 500 MB.')
-    if shutil.disk_usage(store.ROOT).free<6*1024**3:raise HTTPException(503,'Storage is busy. Please try again later.')
     name=body.get('name','');hint=body.get('title','');artist=body.get('artist','')
     if not isinstance(name,str) or not isinstance(hint,str) or not isinstance(artist,str):raise HTTPException(400,'Invalid clip details.')
     try:jid=store.reserve_job(owner,store.ip_key(ip(request)),size,name,hint.strip(),artist.strip())
@@ -186,10 +219,10 @@ async def upload(jid:str,part:int,request:Request):
     owner=session(request)
     existing=job_or_404(jid)
     if existing["owner"]!=owner:raise HTTPException(403,"This upload belongs to another session.")
-    async with locks.setdefault(jid,asyncio.Lock()):
+    async with job_lock(jid):
         job=job_or_404(jid)
         if job['owner']!=owner:raise HTTPException(403,'This upload belongs to another session.')
-        if job['status']!='uploading' or part<0:raise HTTPException(409,'This upload is already complete.')
+        if job['status']!='uploading' or part<0:raise HTTPException(409,"The upload stopped for too long. Please choose the file again." if job['status']=='done' else 'This upload is already complete.')
         offset=part*store.PART_BYTES
         expected=min(store.PART_BYTES,job['size']-offset)
         if expected<=0 or offset>job['received']:raise HTTPException(409,'Please send the next part in order.')
@@ -198,18 +231,25 @@ async def upload(jid:str,part:int,request:Request):
         duplicate=offset<job['received'];received=0
         store.update(jid)  # receiving a bounded chunk counts as upload activity
         try:
-            with open(path,'r+b' if path.exists() else 'w+b') as f:
+            with open(path,'r+b' if path.exists() else 'w+b',buffering=0) as f:
                 f.seek(offset)
-                async with asyncio.timeout(90):
-                    async for piece in request.stream():
-                        received+=len(piece)
-                        if received>expected:raise HTTPException(413,'Upload part is too large.')
-                        if not duplicate:f.write(piece)
+                stream=request.stream().__aiter__();activity=time.monotonic()
+                while True:
+                    try:piece=await asyncio.wait_for(anext(stream),UPLOAD_STALL_SECONDS)
+                    except StopAsyncIteration:break
+                    except TimeoutError:raise HTTPException(408,'Upload stopped receiving data. Please try again.')
+                    received+=len(piece)
+                    if received>expected:raise HTTPException(413,'Upload part is too large.')
+                    if not duplicate:await disk_call(f.write,piece)
+                    if time.monotonic()-activity>30:
+                        await asyncio.to_thread(store.update,jid);activity=time.monotonic()
                 if received!=expected:raise HTTPException(400,'Upload part was interrupted. Try again.')
-                if not duplicate:f.flush();os.fsync(f.fileno())
+                if not duplicate:
+                    await disk_call(f.flush)
+                    await disk_call(os.fsync,f.fileno())
         except BaseException:
             if not duplicate and path.exists():
-                with path.open('r+b') as f:f.truncate(job['received'])
+                with path.open('r+b') as f:await disk_call(f.truncate,job['received'])
             raise
         if not duplicate:store.update(jid,received=offset+received)
         return {'received':job['received'] if duplicate else offset+received}
@@ -219,13 +259,12 @@ async def complete(jid:str,request:Request):
     owner=session(request)
     existing=job_or_404(jid)
     if existing["owner"]!=owner:raise HTTPException(403,"This upload belongs to another session.")
-    async with locks.setdefault(jid,asyncio.Lock()):
+    async with job_lock(jid):
         job=job_or_404(jid)
         if job['owner']!=owner:raise HTTPException(403,'This upload belongs to another session.')
         if job['status']!='uploading':return {'id':jid}
         try:store.enqueue(jid)
         except ValueError as e:raise HTTPException(409,str(e))
-    locks.pop(jid,None)
     return {'id':jid}
 
 @app.get('/api/clips/{jid}')
@@ -239,6 +278,7 @@ async def status(jid:str,request:Request):
     out['can_retry']=bool(owns and j['status']=='done' and j['audio_created']>=time.time()-14*86400 and (store.ROOT/'audio'/f"{j['audio_id']}.m4a").is_file())
     out['can_cancel']=bool(owns and j['status']!='done')
     out['artist_hint']=j['artist'] if owns else ''
+    if owns:out.update(received=j['received'],clip_key=j['audio_id'])
     out['steps']=json.loads(j['steps']);out.update(json.loads(j['result']))
     # Reformat stored reports so historical results also get the identity fix.
     report=json.loads(j['report'])
@@ -262,7 +302,7 @@ async def retry(jid:str,request:Request):
 async def cancel(jid:str,request:Request):
     owner=session(request);j=job_or_404(jid)
     if j['owner']!=owner:raise HTTPException(403,'Only the uploader can cancel this search.')
-    async with locks.setdefault(jid,asyncio.Lock()):
+    async with job_lock(jid):
         with store.db() as c:
             c.execute('BEGIN IMMEDIATE')
             j=dict(c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone())
@@ -271,7 +311,6 @@ async def cancel(jid:str,request:Request):
                           (json.dumps({'verdict':'cancelled','message':'This search was cancelled.'}),time.time(),time.time(),jid))
                 (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
             elif j['status']=='working':c.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?',(jid,))
-    locks.pop(jid,None)
     return {'ok':True}
 
 @app.post('/api/clips/{jid}/feedback')
@@ -305,7 +344,7 @@ async def metrics(request:Request):
     for row in rows:
         verdict=json.loads(row['result']).get('verdict',row['status'])
         counts[verdict]=counts.get(verdict,0)+1
-        unavailable+=bool(json.loads(row['report']).get('provider_issues'))
+        unavailable+=any(isinstance(issue,dict) and issue.get('kind') for issue in json.loads(row['report']).get('provider_issues',[]))
         if row['started']:waits.append(max(0,row['started']-row['created']))
         if row['started'] and row['finished']:durations.append(max(0,row['finished']-row['started']))
     return {'days':7,'jobs':len(rows),'outcomes':counts,'source_issues':unavailable,

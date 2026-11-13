@@ -7,6 +7,7 @@ ROOT = Path(os.environ.get('SONGFINDER_DATA', 'web-data-public')).resolve()
 MAX_BYTES = 500 * 1024 * 1024
 PART_BYTES = 8 * 1024 * 1024
 MAX_WAITING = 10
+DISK_FLOOR = 6 * 1024**3
 MAX_UPLOADS_PER_IP = 3
 MAX_UPLOADS = 20
 CACHE_BYTES = 4 * 1024**3
@@ -93,7 +94,7 @@ def expire_uploads(c,now):
     for row in stale:
         (ROOT/'uploads'/row['id']).unlink(missing_ok=True)
         c.execute("UPDATE jobs SET status='done',result=?,updated=?,finished=? WHERE id=?",
-                  (json.dumps({'verdict':'error','message':'This upload was inactive and expired. Please choose the file again.'}),now,now,row['id']))
+                  (json.dumps({'verdict':'error','message':'The upload stopped for too long. Please choose the file again.'}),now,now,row['id']))
 
 def enqueue(jid):
     with db() as c:
@@ -101,8 +102,7 @@ def enqueue(jid):
         job=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
         if job['status']!='uploading':return
         if job['received']!=job['size']:raise ValueError('Upload has not finished.')
-        if c.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','working')").fetchone()[0]>=MAX_WAITING:
-            raise ValueError('The search queue is full. Please try again shortly.')
+        # Admission reserves completion too: never discard bytes already uploaded.
         c.execute("UPDATE jobs SET status='queued',updated=? WHERE id=?",(time.time(),jid))
 
 def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
@@ -113,12 +113,16 @@ def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
     with db() as c:
         c.execute('BEGIN IMMEDIATE')
         c.execute('DELETE FROM limits WHERE ts<?',(now-86400,))
-        for key,cap,window in [('clip:'+iphash,5,3600),('clip:'+iphash,20,86400),('global',100,86400)]:
+        limit_key=('retry:' if retry_from else 'clip:')+iphash
+        for key,cap,window in [(limit_key,20 if retry_from else 5,3600),(limit_key,60 if retry_from else 20,86400),('global',100,86400)]:
             count=c.execute('SELECT count(*) FROM limits WHERE key=? AND ts>?',(key,now-window)).fetchone()[0]
-            if count>=cap:raise ValueError('The upload limit has been reached. Please try again later.')
-        if retry_from and c.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','working')").fetchone()[0]>=MAX_WAITING:
-            raise ValueError('The queue is full. Please try again in a few minutes.')
+            if count>=cap:raise ValueError("You've reached 5 searches this hour. Try again later." if not retry_from and window==3600 else 'You have reached the search limit. Try again later.')
+        if c.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','working')").fetchone()[0]>=MAX_WAITING:
+            raise ValueError('Lots of searches right now. Try again in a few minutes.')
         if not retry_from:
+            outstanding=c.execute("SELECT coalesce(sum(size-received),0) FROM jobs WHERE status='uploading'").fetchone()[0]
+            if shutil.disk_usage(ROOT).free-outstanding-size<DISK_FLOOR:
+                raise ValueError('Storage is busy. Please try again later.')
             if c.execute("SELECT count(*) FROM jobs WHERE status='uploading' AND upload_ip=?",(iphash,)).fetchone()[0]>=MAX_UPLOADS_PER_IP:
                 raise ValueError('Finish or cancel another upload before starting one more.')
             if c.execute("SELECT count(*) FROM jobs WHERE status='uploading'").fetchone()[0]>=MAX_UPLOADS:
@@ -136,7 +140,7 @@ def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
         c.execute('UPDATE jobs SET artist=?,audio_id=?,audio_created=?,status=?,upload_ip=? WHERE id=?',
                   (artist[:120],original['audio_id'] if original else jid,
                    original['audio_created'] if original else now,'queued' if original else 'uploading',iphash,jid))
-        c.executemany('INSERT INTO limits VALUES (?,?)',[('clip:'+iphash,now),('global',now)])
+        c.executemany('INSERT INTO limits VALUES (?,?)',[(limit_key,now),('global',now)])
     return jid
 
 def budget_delay(service, cap, gap):
@@ -183,7 +187,6 @@ def purge(now=None):
         total-=p.stat().st_size;p.unlink(missing_ok=True)
 
     # Remove landmarks for evicted references; keep retrieval storage bounded too.
-    from .cache import FeatureCache
     from .retrieval import LandmarkIndex
-    try:LandmarkIndex(ROOT/'cache').prune({m['key'] for m in FeatureCache(str(ROOT/'cache')).entries()})
+    try:LandmarkIndex(ROOT/'cache').prune()
     except Exception:pass  # cache retrieval remains optional

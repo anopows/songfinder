@@ -4,10 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "songfinder"
-version = "0.1.0"
+version = "0.2.0"
 description = "Find the exact recording behind a noisy, speed-altered clip"
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
+[project.urls]
+Homepage = "https://songfinder.andi.sh"
+Repository = "https://github.com/anopows/songfinder"
+Issues = "https://github.com/anopows/songfinder/issues"
+Documentation = "https://github.com/anopows/songfinder/blob/main/docs/hosting.md"
+
+[project.optional-dependencies]
+web = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1", "argon2-cffi>=23,<26", "shazamio>=0.8,<1", "yt-dlp"]
 
 [project.scripts]
 songfinder = "songfinder.cli:main"

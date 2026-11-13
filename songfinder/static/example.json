@@ -1,0 +1,32 @@
+{
+  "id": "example",
+  "created": 1794607629,
+  "status": "done",
+  "name": "Public sample",
+  "hint": "",
+  "feedback": null,
+  "can_retry": false,
+  "can_cancel": false,
+  "artist_hint": "",
+  "steps": [],
+  "verdict": "exact",
+  "title": "Everybody Loves My Baby",
+  "artist": "Nirav Sanghani and the Pacific Six",
+  "album": "Beside the Bay",
+  "links": [
+    {
+      "label": "Bandcamp",
+      "url": "https://pacificsixjazz.bandcamp.com/track/everybody-loves-my-baby",
+      "search": false
+    }
+  ],
+  "preview_only": false,
+  "speed": {
+    "big": "92.6%",
+    "note": "Slowed down, same pitch. Play the original at 0.93\u00d7 to match your clip.",
+    "tip": ""
+  },
+  "starts_at": "0:02",
+  "similarity": 0.95,
+  "ahead": 0
+}

@@ -154,7 +154,7 @@ def _parse(answer: dict) -> dict | None:
 
 
 async def _run(clip: str, duration: float, rates: list[float], max_calls: int, pause: float,
-               log: Callable[[str], None], patience: int = len(THROTTLE_WAITS_S)) -> list[Hit]:
+               log: Callable[[str], None], patience: int = len(THROTTLE_WAITS_S), on_issue=None, remaining=None) -> list[Hit]:
     from aiohttp_retry import ExponentialRetry
     from shazamio import HTTPClient, Shazam
     from shazamio.exceptions import BadResponseStatus
@@ -188,20 +188,25 @@ async def _run(clip: str, duration: float, rates: list[float], max_calls: int, p
                 gave_up = True
                 break
             if REQUEST_GATE and not await asyncio.to_thread(REQUEST_GATE, "shazam"):
+                if on_issue:on_issue("shazam","budget")
                 log("  Recognition budget reached; continuing with other sources")
                 gave_up = True
                 break
             global _last_request
             wait = _last_request + MIN_GAP_S - time.monotonic()
             if wait > 0:
+                if remaining and wait>=remaining():
+                    if on_issue:on_issue('shazam','budget')
+                    gave_up=True;break
                 await asyncio.sleep(wait)
             _last_request = time.monotonic()
             calls += 1
             try:
-                answer = await shazam.recognize(data)
+                answer = await asyncio.wait_for(shazam.recognize(data), min(60,max(.01,remaining())) if remaining else 60)
                 store_answer("shazam", data, answer)
                 break
             except BadResponseStatus as e:  # almost always HTTP 429: too many requests
+                if on_issue:on_issue('shazam','throttled')
                 if REQUEST_BLOCK:
                     REQUEST_BLOCK("shazam", 120 if throttled == 0 else 300)
                 if throttled >= patience and patience < len(THROTTLE_WAITS_S):
@@ -214,10 +219,14 @@ async def _run(clip: str, duration: float, rates: list[float], max_calls: int, p
                     log(f"  Shazam keeps refusing; not asking it again for {COOLDOWN_S / 60:.0f} minutes")
                     gave_up = True
                     break
+                if remaining and THROTTLE_WAITS_S[throttled]>=remaining():
+                    log('  Throttle wait exceeds the remaining search budget; moving on')
+                    gave_up=True;break
                 log(f"  Shazam is throttling; waiting {THROTTLE_WAITS_S[throttled]:.0f} s")
                 await asyncio.sleep(THROTTLE_WAITS_S[throttled])
                 throttled += 1
             except Exception as e:          # network trouble: stop asking
+                if on_issue:on_issue('shazam','unavailable')
                 log(f"  Shazam request failed ({type(e).__name__}: {e}); stopping")
                 gave_up = True
                 break
@@ -253,7 +262,7 @@ async def _run(clip: str, duration: float, rates: list[float], max_calls: int, p
 
 def recognise(clip: str, duration: float, rates: list[float] | None = None, max_calls: int = 40,
               pause: float = 2.5, patience: int = len(THROTTLE_WAITS_S),
-              log: Callable[[str], None] = lambda s: None) -> tuple[list[Hit], int]:
+              log: Callable[[str], None] = lambda s: None, on_issue=None, remaining=None) -> tuple[list[Hit], int]:
     """Ask Shazam about the clip, assuming each of `rates` in turn (default: all of RATES).
 
     Returns the distinct answers, most repeated first, and how many fingerprints were sent.
@@ -262,9 +271,10 @@ def recognise(clip: str, duration: float, rates: list[float] | None = None, max_
         raise RuntimeError("The Shazam fast path needs the optional package: pip install shazamio")
     left = _blocked_until - time.monotonic()
     if left > 0:
+        if on_issue:on_issue('shazam','throttled')
         log(f"  Shazam refused recently; skipping it for another {left / 60:.0f} minute(s)")
         return [], 0
-    return asyncio.run(_run(clip, duration, list(rates or RATES), max_calls, pause, log, patience))
+    return asyncio.run(_run(clip, duration, list(rates or RATES), max_calls, pause, log, patience,on_issue,remaining))
 
 
 # ------------------------------------------------------------------------- AudD
@@ -330,18 +340,24 @@ def recognise_audd(clip: str, duration: float, rates: list[float] | None = None,
         answer = cached_answer("audd", wav)
         if answer is None:
             if REQUEST_GATE and not REQUEST_GATE("audd"):
+                if on_issue:on_issue("audd","budget")
                 log("  Recognition budget reached; continuing without an excerpt")
+                break
+            if remaining and remaining()<=1:
+                if on_issue:on_issue('audd','budget')
                 break
             calls += 1
             try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
+                with urllib.request.urlopen(req, timeout=min(60,max(1,remaining())) if remaining else 60) as resp:
                     answer = _json.loads(resp.read())
             except Exception as e:
+                if on_issue:on_issue('audd','unavailable')
                 log(f"  AudD request failed ({type(e).__name__}: {e})")
                 break
             if answer.get("status") == "success":
                 store_answer("audd", wav, answer)
         if answer.get("status") != "success":
+            if on_issue:on_issue('audd','refused')
             log(f"  AudD refused: {str(answer.get('error'))[:120]}")
             break
         h = _audd_hit(answer.get("result"), mode, rate, start)

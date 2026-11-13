@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+<rect width="1200" height="630" fill="#0c0c0e"/>
+<circle cx="1050" cy="315" r="225" fill="none" stroke="#242124" stroke-width="2"/><circle cx="1050" cy="315" r="175" fill="none" stroke="#302a20" stroke-width="2"/><circle cx="1050" cy="315" r="105" fill="none" stroke="#e8b44c" stroke-width="3"/>
+<circle cx="1050" cy="315" r="13" fill="#e8b44c"/>
+<text x="76" y="108" font-family="Arial,sans-serif" font-size="38" font-weight="bold" fill="#f4f2ec">song<tspan fill="#e8b44c">·</tspan>finder</text>
+<text x="76" y="250" font-family="Arial,sans-serif" font-size="72" font-weight="bold" fill="#f4f2ec">What song was that?</text>
+<text x="78" y="326" font-family="Arial,sans-serif" font-size="29" fill="#b9b7bf">Find the exact recording behind your clip.</text>
+<text x="78" y="370" font-family="Arial,sans-serif" font-size="29" fill="#b9b7bf">Even slowed down or sped up.</text>
+<rect x="76" y="454" width="300" height="68" rx="15" fill="#e8b44c"/><text x="106" y="498" font-family="Arial,sans-serif" font-size="29" font-weight="bold" fill="#1d1404">songfinder.andi.sh</text></svg>

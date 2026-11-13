@@ -37,3 +37,36 @@ test('upload size is checked against the server bootstrap limit',async()=>{
  await e.node('file').onchange();assert.match(e.node('err').textContent,/limit is 1 MB/);
  assert.deepEqual(e.calls,['/api/bootstrap']);
 });
+test('file choice waits for confirmation and includes both clues',async()=>{
+ const e=await environment();e.node('file').files=[{size:100,name:'public.wav'}];e.node('file').onchange();
+ assert.equal(e.node('confirm').hidden,false);assert.deepEqual(e.calls,['/api/bootstrap']);
+ e.node('title').value='Song';e.node('artist').value='Band';let created;
+ e.sandbox.fetch=async(url,opt)=>{if(url==='/api/clips'){created=JSON.parse(opt.body);throw new Error('stop before upload')}return {ok:true,json:async()=>({})}};
+ await e.node('confirmform').onsubmit({preventDefault(){}});
+ assert.deepEqual(created,{size:100,name:'public.wav',title:'Song',artist:'Band'});
+});
+test('non-JSON gateway response gives a plain retry message',async()=>{
+ const e=await environment();e.sandbox.fetch=async()=>({ok:false,status:502,json:async()=>{throw new SyntaxError('Unexpected <')}});
+ await assert.rejects(vm.runInContext('api("/api/clips",{})',e.sandbox),/Please try again/);
+});
+test('lost upload response resumes from committed server offset',async()=>{
+ const e=await environment();const puts=[];let offset=0;
+ e.sandbox.setTimeout=resolve=>{resolve();return 0};
+ e.sandbox.fetch=async(url,opt)=>{
+  if(!opt)return {ok:true,json:async()=>({status:'uploading',received:offset})};
+  puts.push(url);if(url.endsWith('/0')){offset=8;throw new Error('response lost after commit')}
+  offset=10;return {ok:true,status:200,json:async()=>({received:10})};
+ };
+ await vm.runInContext('sendFile({size:10,slice:(a,b)=>({size:Math.min(10,b)-a})},{id:"test",part_bytes:8})',e.sandbox);
+ assert.deepEqual(puts,['/api/clips/test/parts/0','/api/clips/test/parts/1']);assert.equal(e.node('bar').value,1);
+});
+test('retry family is folded into a single recent search',async()=>{
+ const e=await environment();let saved='[]';e.sandbox.localStorage={getItem:()=>saved,setItem:(k,v)=>{saved=v}};
+ vm.runInContext('remember({id:"original",clip_key:"original"});remember({id:"retry",clip_key:"original",title:"Song",verdict:"exact"})',e.sandbox);
+ assert.equal(JSON.parse(saved).length,1);assert.equal(JSON.parse(saved)[0].id,'retry');
+});
+test('no-match copy opens retained-audio clues and hides match cards',async()=>{
+ const e=await environment();
+ vm.runInContext('render({id:"test",status:"done",verdict:"none",can_retry:true,steps:[]})',e.sandbox);
+ assert.equal(e.node('rtitle').textContent,"We couldn't find this one");assert.equal(e.node('retry').open,true);assert.equal(e.node('facts').hidden,true);
+});

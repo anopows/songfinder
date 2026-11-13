@@ -101,6 +101,10 @@ class Bandcamp:
         queries = [title, f'"{title}"']
         if artist:
             queries.insert(0, f"{title} {artist}")
+        else:
+            queries += [f"{title} {word}" for word in
+                        ('the','and','band','jazz','live','trio','quartet','orchestra','swing','hot','six')]
+        # fetch_json uses the shared per-host request spacing in net.py.
         seen: dict[str, Candidate] = {}
         for q in queries:
             data = fetch_json(self.SEARCH, {"search_text": q, "search_filter": "t",

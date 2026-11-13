@@ -165,7 +165,7 @@ def _sources(a) -> list[str] | None:
     return sources
 
 
-def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=None, on_result=None, should_stop=None):
+def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=None, on_result=None, should_stop=None, remaining=None):
     """All stages for one clip. Returns (ranked results, query, notes for the report)."""
     emit = log or _log
     def checkpoint():
@@ -178,10 +178,15 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
          f"speeds {q.rates[0] * 100:.0f}%-{q.rates[-1] * 100:.0f}%")
     ranked: list[Result] = []
     seen: set[str] = set()
-    notes = {"route": "", "hints": [], "fingerprints": 0, "links": [], "audd_calls": 0}
+    notes = {"route": "", "hints": [], "fingerprints": 0, "links": [], "audd_calls": 0, "provider_issues": []}
+    def issue(source,kind):
+        value={'source':source,'kind':kind}
+        if value not in notes['provider_issues']:notes['provider_issues'].append(value)
+    def catalogue(title,artist):
+        return gather(title,artist,sources,emit,on_issue=issue)
     searched_titles: set[str] = set()
 
-    def check(candidates, label: str, route: str, quick: bool = False, cached: bool = False) -> None:
+    def check(candidates, label: str, route: str, quick: bool = False, cached: bool = False, title_only: bool = False) -> None:
         nonlocal ranked
         checkpoint()
         fresh = []
@@ -191,14 +196,19 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         # The network candidate cap must not discard known reference recordings.
         # Cached comparisons remain bounded by the job's wall-clock deadline.
         if a.max_candidates and not cached:
-            fresh = fresh[:a.max_candidates]
+            if title_only:
+                # Give rare full-length tracks their own bounded allowance.
+                bandcamp=[c for c in fresh if c.source=='bandcamp' and c.audio_kind=='full']
+                others=[c for c in fresh if c not in bandcamp]
+                fresh=bandcamp[:150]+others[:min(30,a.max_candidates)]
+            else:fresh = fresh[:a.max_candidates]
         seen.update(c.key for c in fresh)
         if not fresh:
             return
         had = found()
         emit(f"Checking {len(fresh)} candidates ({label}):")
         ranked = rank(ranked + identify(q, fresh, cache, workers=a.workers,
-                                        exhaustive=a.exhaustive, quick=quick, log=emit))
+                                        exhaustive=a.exhaustive, quick=quick, log=emit, on_issue=issue))
         if found() and not had:
             notes["route"] = route
         if on_result:
@@ -232,7 +242,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         if not full or found_full():
             return
         emit(f'Confirmed against a preview; looking for a full-length "{title}" by {artist}:')
-        check(gather(title, artist, full, emit)[:LINK_SEARCH_LIMIT], "full-length copies", notes["route"])
+        check(gather(title, artist, full, emit,on_issue=issue)[:LINK_SEARCH_LIMIT], "full-length copies", notes["route"])
 
     def ask_shazam(rates, budget: int, label: str, patience: int = 3) -> None:
         if budget <= 0:
@@ -240,8 +250,9 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         emit(f"Asking Shazam, {label} (fingerprints only, no audio is sent):")
         try:
             hits, calls = recognise(clip, q.duration, rates=rates, max_calls=budget, log=emit,
-                                    patience=patience)
+                                    patience=patience,on_issue=issue,remaining=remaining)
         except RuntimeError as e:
+            issue('shazam','unavailable')
             emit(f"  {e}")
             return
         notes["fingerprints"] += calls
@@ -249,7 +260,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
 
     def ask_audd() -> None:
         emit("Asking AudD (sends a 15 s audio excerpt):")
-        hits, calls = recognise_audd(clip, q.duration, rates=[0.9, 1.1], max_calls=a.audd_calls, log=emit)
+        hits, calls = recognise_audd(clip, q.duration, rates=[0.9, 1.1], max_calls=a.audd_calls, log=emit,on_issue=issue,remaining=remaining)
         notes["audd_calls"] = notes.get("audd_calls", 0) + calls
         follow(hits)
 
@@ -285,7 +296,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
                 if found():
                     break
                 emit(f'Searching for "{title}" by {artist}:')
-                check(gather(title, artist, sources, emit), "catalogue search", route)
+                check(catalogue(title, artist), "catalogue search", route)
             if found():
                 return
         # A recogniser often names the right tune but another band's version of it.
@@ -295,7 +306,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
                 continue
             searched_titles.add(title.lower())
             emit(f'Searching other versions of "{title}":')
-            check(gather(title, None, sources, emit)[:VERSION_SEARCH_LIMIT], "other versions of the title",
+            check(catalogue(title, None)[:VERSION_SEARCH_LIMIT], "other versions of the title",
                   "Shazam title, then other versions", quick=True)
 
     # 1. Links supplied by the user, then a catalogue search if a title is known.
@@ -312,22 +323,23 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         check(index(a.title), "local index entries for the title", "local index", quick=True, cached=True)
     if a.title and sources and not found():
         emit(f'Searching for "{a.title}"' + (f" by {a.artist}" if a.artist else "") + ":")
-        check(gather(a.title, a.artist, sources, emit), "catalogue search", "title search",
-              quick=not a.artist)
+        check(catalogue(a.title, a.artist), "catalogue search", "title search",
+              quick=not a.artist,title_only=not a.artist)
 
     use_shazam = a.shazam
     # 2. Cheapest first: one round of Shazam on the unmodified clip (a few seconds).
     if use_shazam and not found():
         ask_shazam([1.0], min(3, a.shazam_calls), "clip as recorded", patience=1)
-    # 3. Everything matched before: the local index. No network, any speed.
-    if not found() and (a.index or not (a.title or given)):
-        check(index(), "recordings already in the local index", "local index", quick=True, cached=True)
     # 4. Still nothing: Shazam again with the clip corrected for other speeds.
     if use_shazam and not found():
         ask_shazam(RATES[1:], a.shazam_calls - notes["fingerprints"], "speed-corrected")
     # 5. Shazam does not know it: a second recogniser with another catalogue.
     if a.audd and not found():
         ask_audd()
+    # Broad offline fallback comes last: it must never starve recognition.
+    # 3. Everything matched before: the local index. No network, any speed.
+    if not found() and (a.index or not (a.title or given)):
+        check(index(), "recordings already in the local index", "local index", quick=True, cached=True)
     if not notes["route"] and any(r.decision in ("exact", "probable") for r in ranked):
         notes["route"] = "preview only"
     return ranked, q, notes, bool(seen)
@@ -345,7 +357,7 @@ def _report(clip: str, q: Query, ranked: list[Result], notes: dict, title, cache
     """Everything known about one clip, with listening links (Spotify first) once identified."""
     data = {"clip": os.path.basename(clip), "clip_seconds": round(q.duration, 2),
             "title": title, "bands_per_octave": BPO, "route": notes["route"],
-            "shazam_hints": notes["hints"], "fingerprints_sent": notes["fingerprints"],
+            "provider_issues": notes.get("provider_issues",[]), "shazam_hints": notes["hints"], "fingerprints_sent": notes["fingerprints"],
             "results": [result_dict(r) for r in ranked if not r.skipped]}
     data.update(build_links(data, q, cache, spotify, _log))
     return data

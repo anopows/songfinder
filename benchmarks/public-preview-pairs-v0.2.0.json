@@ -1,0 +1,329 @@
+{
+  "kind": "new-public-preview-pair-evaluation-v1",
+  "engine_sha256": "07c48d851e7eac682677cde7e0a981e914f683bc1dff6273fb303490dbc18c1b",
+  "sources": [
+    {
+      "artist": "Hugh Laurie",
+      "title": "St. James Infirmary",
+      "url": "https://music.apple.com/us/album/st-james-infirmary/458249806?i=458249809&uo=4",
+      "sha256": "142146b6d3d27136bc75da4a3c8fe237d87609882d59680904d43d67607d7a4e"
+    },
+    {
+      "artist": "Louis Armstrong",
+      "title": "St. James Infirmary (Gambler's Blues)",
+      "url": "https://music.apple.com/us/album/st-james-infirmary-gamblers-blues/1466704359?i=1466704363&uo=4",
+      "sha256": "8ff7174e69e64eaf670b32e462861b454b708e6cf2d810987e580b751b63d70a"
+    },
+    {
+      "artist": "Cab Calloway",
+      "title": "St. James Infirmary",
+      "url": "https://music.apple.com/us/album/st-james-infirmary/303136286?i=303136308&uo=4",
+      "sha256": "fdf818c1ebcb76a00889e35328182d26864646e82723d4d511b6af7092eb05e9"
+    }
+  ],
+  "cases": [
+    {
+      "query": "hugh-laurie",
+      "reference": "hugh-laurie",
+      "variant": "clean",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.136,
+      "retrieval_seconds": 0.0037,
+      "retrieved": true,
+      "similarity": 1.0
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "louis-armstrong",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0294,
+      "retrieval_seconds": 0.0037,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "cab-calloway",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0287,
+      "retrieval_seconds": 0.0037,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "hugh-laurie",
+      "variant": "slowed",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1439,
+      "retrieval_seconds": 0.0039,
+      "retrieved": true,
+      "similarity": 0.9758
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "louis-armstrong",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0299,
+      "retrieval_seconds": 0.0039,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "cab-calloway",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.03,
+      "retrieval_seconds": 0.0039,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "hugh-laurie",
+      "variant": "room",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1428,
+      "retrieval_seconds": 0.0045,
+      "retrieved": true,
+      "similarity": 0.5951
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "louis-armstrong",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.031,
+      "retrieval_seconds": 0.0045,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "hugh-laurie",
+      "reference": "cab-calloway",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.1348,
+      "retrieval_seconds": 0.0045,
+      "retrieved": true,
+      "similarity": 0.0612
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "hugh-laurie",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0288,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "louis-armstrong",
+      "variant": "clean",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1373,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": 1.0
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "cab-calloway",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0287,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "hugh-laurie",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.032,
+      "retrieval_seconds": 0.0048,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "louis-armstrong",
+      "variant": "slowed",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1545,
+      "retrieval_seconds": 0.0048,
+      "retrieved": true,
+      "similarity": 0.9776
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "cab-calloway",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0307,
+      "retrieval_seconds": 0.0048,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "hugh-laurie",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0303,
+      "retrieval_seconds": 0.0044,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "louis-armstrong",
+      "variant": "room",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.147,
+      "retrieval_seconds": 0.0044,
+      "retrieved": true,
+      "similarity": 0.6624
+    },
+    {
+      "query": "louis-armstrong",
+      "reference": "cab-calloway",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0288,
+      "retrieval_seconds": 0.0044,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "hugh-laurie",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0301,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "louis-armstrong",
+      "variant": "clean",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0288,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "cab-calloway",
+      "variant": "clean",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.138,
+      "retrieval_seconds": 0.0041,
+      "retrieved": true,
+      "similarity": 1.0
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "hugh-laurie",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.028,
+      "retrieval_seconds": 0.004,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "louis-armstrong",
+      "variant": "slowed",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.028,
+      "retrieval_seconds": 0.004,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "cab-calloway",
+      "variant": "slowed",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1362,
+      "retrieval_seconds": 0.004,
+      "retrieved": true,
+      "similarity": 0.9823
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "hugh-laurie",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.0282,
+      "retrieval_seconds": 0.0042,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "louis-armstrong",
+      "variant": "room",
+      "expected_same_recording": false,
+      "decision": "none",
+      "seconds": 0.028,
+      "retrieval_seconds": 0.0042,
+      "retrieved": true,
+      "similarity": null
+    },
+    {
+      "query": "cab-calloway",
+      "reference": "cab-calloway",
+      "variant": "room",
+      "expected_same_recording": true,
+      "decision": "exact",
+      "seconds": 0.1333,
+      "retrieval_seconds": 0.0042,
+      "retrieved": true,
+      "similarity": 0.6527
+    }
+  ],
+  "false_exact": 0,
+  "positives": 9,
+  "true_exact": 9,
+  "retrieval_recall": 1.0,
+  "provider_requests": 0,
+  "limitation": "Three unfamiliar public previews, source-labelled performers; positives are derived from identical audio. Not a blind human-labelled field set or cold discovery benchmark. No audio redistributed."
+}

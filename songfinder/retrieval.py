@@ -5,7 +5,7 @@ verdict. Missing/corrupt indexes fall back to the ordinary feature catalogue.
 """
 from collections import Counter, defaultdict
 from contextlib import closing
-import json, math, sqlite3
+import hashlib, json, math, sqlite3
 from pathlib import Path
 import numpy as np
 from scipy.ndimage import maximum_filter
@@ -54,11 +54,14 @@ class LandmarkIndex:
             c.execute('DELETE FROM recordings WHERE key=?',(key,))
             rid=c.execute('INSERT INTO recordings(key,meta,version) VALUES (?,?,?)',(key,json.dumps(meta),VERSION)).lastrowid
             c.executemany('INSERT INTO hashes VALUES (?,?,?,?,?)',((h,rid,t,b,dt) for h,t,b,dt in rows))
-    def prune(self,live_keys):
+    def prune(self,live_keys=None):
         if not self.path.exists():return
         with closing(self.connect()) as c,c:
+            c.execute('BEGIN IMMEDIATE')
             for key, in c.execute('SELECT key FROM recordings').fetchall():
-                if key not in live_keys:c.execute('DELETE FROM recordings WHERE key=?',(key,))
+                digest=hashlib.sha1(key.encode()).hexdigest()
+                path=self.root/digest[:2]/(digest+'.npz')
+                if not path.is_file():c.execute('DELETE FROM recordings WHERE key=?',(key,))
 
     def shortlist(self,f,limit=12):
         if not self.path.exists():return []
@@ -94,9 +97,7 @@ def rebuild(root):
         if not hit:continue
         idx.put(meta['key'],hit[0],meta);live.add(meta['key']);count+=1
         if count%100==0:print(f'Indexed {count} references',flush=True)
-    with closing(idx.connect()) as c,c:
-        for key, in c.execute('SELECT key FROM recordings').fetchall():
-            if key not in live:c.execute('DELETE FROM recordings WHERE key=?',(key,))
+    idx.prune()
     print(f'Indexed {count} references',flush=True)
 
 if __name__=='__main__':

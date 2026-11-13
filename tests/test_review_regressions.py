@@ -28,12 +28,13 @@ def test_legacy_ten_abandoned_reservations_do_not_block_new_visitor(client):
     for i in range(10):store.reserve_job('legacy',str(i),10,'test.wav','')
     assert store.get(store.reserve_job('visitor','fresh',10,'test.wav',''))['status']=='uploading'
 
-def test_search_queue_cap_is_enforced_atomically_at_completion(client,monkeypatch):
+def test_admitted_upload_completes_even_when_queue_fills(client,monkeypatch):
     monkeypatch.setattr(store,'MAX_WAITING',1)
     first=store.reserve_job('owner','a',10,'a','');second=store.reserve_job('owner','b',10,'b','')
     store.update(first,received=10);store.enqueue(first);store.update(second,received=10)
-    with pytest.raises(ValueError,match='queue is full'):store.enqueue(second)
-    assert store.get(second)['status']=='uploading'
+    store.enqueue(second)
+    assert store.get(second)['status']=='queued'
+    with pytest.raises(ValueError,match='Lots of searches'):store.reserve_job('owner','c',10,'c','')
 
 def test_upload_survives_expired_verification_and_reverification(client,monkeypatch):
     monkeypatch.setattr(store,'PART_BYTES',8);verify(client);jid=create(client,10)
@@ -99,7 +100,7 @@ def test_provider_budget_exhaustion_reaches_visitor_status(tmp_path,monkeypatch)
     monkeypatch.setattr(cli,'load_env_file',lambda *a:None)
     def search(a,clip,cache,sources,**kw):
         kw['log']('  Recognition budget reached; continuing without an excerpt')
-        return [],SimpleNamespace(duration=30),dict(route='',hints=[],fingerprints=0),False
+        return [],SimpleNamespace(duration=30),dict(route='',hints=[],fingerprints=0,provider_issues=[{'source':'audd','kind':'budget'}]),False
     monkeypatch.setattr(cli,'run_identify',search)
     monkeypatch.setattr(cli,'_report',lambda *a:{'results':[]})
     report=service.identify_clip('public.wav',options=service.Options(cache_dir=str(tmp_path)))
