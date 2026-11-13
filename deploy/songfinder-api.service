@@ -1,0 +1,24 @@
+[Unit]
+Description=Songfinder public API
+After=network-online.target
+Wants=network-online.target
+[Service]
+User=songfinder
+Group=songfinder
+WorkingDirectory=/opt/songfinder
+EnvironmentFile=/etc/songfinder.env
+ExecStart=/opt/songfinder/.venv/bin/uvicorn songfinder.api:app --host 127.0.0.1 --port 18794 --workers 1 --no-access-log --no-proxy-headers --limit-concurrency 32 --timeout-keep-alive 10
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/songfinder
+MemoryMax=384M
+TasksMax=64
+LimitNOFILE=1024
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+[Install]
+WantedBy=multi-user.target

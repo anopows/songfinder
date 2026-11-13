@@ -1,0 +1,15 @@
+[Unit]
+Description=Expire Songfinder private audio and old results
+[Service]
+Type=oneshot
+User=songfinder
+Group=songfinder
+WorkingDirectory=/opt/songfinder
+EnvironmentFile=/etc/songfinder.env
+ExecStart=/opt/songfinder/.venv/bin/python -m songfinder.worker --purge
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/songfinder

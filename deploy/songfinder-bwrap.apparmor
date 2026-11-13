@@ -1,0 +1,5 @@
+abi <abi/4.0>,
+include <tunables/global>
+profile songfinder-bwrap /opt/songfinder/bin/bwrap flags=(unconfined) {
+  userns,
+}

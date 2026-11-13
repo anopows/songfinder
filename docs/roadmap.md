@@ -1,0 +1,67 @@
+# Improvement roadmap
+
+Keep the deployed API and worker while testing recognition changes independently.
+The highest priorities are trustworthy results and predictable search time. This is a
+proposed sequence, not a claim that the features below are already implemented.
+
+## 1. Build an independent evaluation set
+
+Freeze the engine and reference catalogue, then evaluate recordings that were not used
+to tune thresholds. Separate empty-cache discovery from warm-cache recognition. Include
+different performances of the same arrangement, short previews, speech, edits, deliberate
+speed changes and music absent from the available catalogue.
+
+Measure false exact matches, recall, median and tail latency, source outages, requests
+per clip and resource use. Retain the existing cases as regression tests. Establish
+labels by listening rather than accepting another engine's verdict as ground truth.
+
+## 2. Make known recordings faster to retrieve
+
+The current cache scan grows with the catalogue. Introduce a fingerprint index that
+returns a small candidate shortlist before the full matcher runs. Prioritize previously
+confirmed recordings while retaining broader title lookup. Preserve the full audio
+verification gate; retrieval scores alone must not produce an exact result.
+
+Acceptance: shortlist recall and end-to-end accuracy do not regress as the catalogue
+grows, and tail latency is measured under the hosted service's CPU and memory limits.
+
+## 3. Strengthen performance-level verification
+
+Reserve disjoint passages for verification that cannot choose or refit the initial
+speed/offset estimate. Evaluate fine spectral detail and transient alignment in addition
+to the existing timing-spread and wrong-offset checks. Select clean musical passages,
+avoid speech where possible, and keep passages on one side of detected edits.
+
+Acceptance: reject convincing alternate performances without losing true matches in
+noisy or short recordings. Run each proposed gate as an isolated comparison first;
+more thresholds are not automatically better.
+
+## 4. Help users recover from an incomplete search
+
+Expose distinct states for a related arrangement, an unconfirmed title, provider
+unavailability, timeout and no useful lead. Offer an owner-authorized retry with an
+edited title or artist using retained audio, so visitors need not upload a large video
+again. Add cancellation and reliable session renewal for long-lived tabs.
+
+The frontend currently records Yes/No feedback but does not turn a rejected match into
+a guided correction flow. Improve that flow before adding more input methods.
+
+## 5. Improve service reliability and phone use
+
+Measure recognition failures, queue latency, resource use and source availability.
+Exercise backup restoration, worker recovery, concurrent load alongside other hosted
+apps, and real Android upload behavior on interrupted connections. Consider an additional
+recognition provider only after measuring which misses it can recover and its cost.
+
+Keep unavailable reference sources optional. A home fetcher is a separate reliability
+and access-control project, not a prerequisite for improving the current matcher.
+
+After these checks, consider microphone capture, client-side audio extraction, batch
+uploads and a practice handoff to five·six. For discoverability, allow indexing of the
+homepage and add link-preview metadata while keeping result and admin URLs unindexed.
+
+## Project maintenance
+
+Keep the public source export synchronized with production, add regression cases for
+confirmed failures, document releases, and choose an explicit reuse license before
+presenting the project as open source.
