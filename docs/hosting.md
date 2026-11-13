@@ -116,3 +116,10 @@ sudo systemctl start songfinder-purge.service
 by copying the live main database without its WAL. Protect backups as private data
 and apply the same audio-retention policy. To roll back, redeploy an earlier source
 revision while keeping the protected environment and data directory.
+
+## Follow-up releases
+
+See [release validation](release-2026-11-13.md) for database backup/restore checks,
+optional fingerprint-index migration, retained-audio retry ownership and new admin metrics.
+Restart the API and worker together after upgrading. The new database columns are
+added automatically; existing results remain readable. Runtime secrets do not change.

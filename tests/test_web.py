@@ -43,7 +43,7 @@ def test_chunk_order_retry_and_completion(client,monkeypatch):
     assert client.post(f'/api/clips/{jid}/complete',json={}).status_code==200
     assert (store.ROOT/'uploads'/jid).read_bytes()==b'abcdefghij'
     assert store.get(jid)['status']=='queued'
-    verify(client)
+    client.cookies.clear();verify(client)
     assert client.put(f'/api/clips/{jid}/parts/0',content=b'abcdefgh').status_code==403
 
 def test_public_result_does_not_expose_audio_or_secrets(client):
@@ -86,7 +86,7 @@ def test_admin_auth_and_expired_audio(client):
     assert client.get('/api/admin/clips').status_code==200
     audio=store.ROOT/'audio'/f'{jid}.m4a';audio.write_bytes(b'private')
     assert client.get(f'/api/admin/clips/{jid}/audio').content==b'private'
-    with store.db() as c:c.execute('UPDATE jobs SET created=? WHERE id=?',(time.time()-15*86400,jid))
+    with store.db() as c:c.execute('UPDATE jobs SET audio_created=? WHERE id=?',(time.time()-15*86400,jid))
     assert client.get(f'/api/admin/clips/{jid}/audio').status_code==404
 
 def test_turnstile_requires_live_verification(client,monkeypatch):

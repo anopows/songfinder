@@ -22,6 +22,12 @@ def main(jid):
     def result(report):
         store.update(jid,result=json.dumps(_summarise(report)),report=json.dumps(report))
     opts=Options(cache_dir=str(store.ROOT/'cache'),sources=tuple(os.environ.get('SONGFINDER_SOURCES','bandcamp,archive,deezer,itunes').split(',')))
-    identify_clip(store.ROOT/'audio'/f'{jid}.m4a',title=job['hint'] or None,options=opts,on_event=event,on_result=result)
+    try:
+        identify_clip(store.ROOT/'audio'/f"{job['audio_id']}.m4a",title=job['hint'] or None,artist=job['artist'] or None,options=opts,on_event=event,on_result=result)
+    except TimeoutError:
+        current=json.loads(store.get(jid)['result'])
+        if current.get('verdict') not in ('exact','probable'):
+            current={'verdict':'timeout','message':'We reached the search time limit. Add a title or performer and try again.'}
+        store.update(jid,result=json.dumps(current),error='Search time limit reached')
 
 if __name__=='__main__':main(sys.argv[1])

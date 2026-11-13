@@ -11,11 +11,15 @@ def terminate(p):
     except ProcessLookupError:pass
     p.wait()
 
-def run_bounded(cmd,seconds,**kwargs):
+class Cancelled(Exception):pass
+
+def run_bounded(cmd,seconds,*,jid=None,**kwargs):
     p=subprocess.Popen(cmd,start_new_session=True,**kwargs);deadline=time.monotonic()+seconds
     try:
         while p.poll() is None:
             heartbeat()
+            if jid and store.get(jid)['cancel_requested']:
+                terminate(p);raise Cancelled()
             if time.monotonic()>deadline:
                 terminate(p);raise TimeoutError('Processing time limit reached')
             time.sleep(.5)
@@ -46,7 +50,7 @@ def decode(jid):
         '-ar','22050','-t','600','-c:a','aac','-b:a','96k','-threads','1',dest]
     try:
         with errorlog.open('wb') as log:
-            code=run_bounded(cmd,90,stdout=subprocess.DEVNULL,stderr=log)
+            code=run_bounded(cmd,90,jid=jid,stdout=subprocess.DEVNULL,stderr=log)
         if code or not decoded.exists() or decoded.stat().st_size<15000:
             raise ValueError('Decode failed: '+errorlog.read_bytes()[-3000:].decode('utf8','replace'))
         decoded.replace(audio)
@@ -57,12 +61,16 @@ def decode(jid):
 def process(job):
     jid=job['id'];started=time.monotonic()
     try:
-        store.event(jid,'Reading the sound from your file');decode(jid)
+        if job['cancel_requested']:raise Cancelled()
+        if job['audio_id']==jid:
+            store.event(jid,'Reading the sound from your file');decode(jid)
+        elif job['audio_created']<time.time()-14*86400 or not (store.ROOT/'audio'/f"{job['audio_id']}.m4a").is_file():
+            raise ValueError('Retained audio has expired')
         store.event(jid,'Comparing your clip with recordings')
         logpath=store.ROOT/'uploads'/f'{jid}.log'
         try:
             with logpath.open('wb') as log:
-                code=run_bounded([sys.executable,'-m','songfinder.job',jid],max(30,360-(time.monotonic()-started)),stdout=log,stderr=log)
+                code=run_bounded([sys.executable,'-m','songfinder.job',jid],max(30,360-(time.monotonic()-started)),jid=jid,stdout=log,stderr=log)
             if code:
                 # Detailed traces remain private. Bound their size before storing.
                 detail=logpath.read_bytes()[-6000:].decode('utf8','replace')
@@ -70,16 +78,18 @@ def process(job):
                 if not json.loads(store.get(jid)['result']).get('verdict'):
                     store.update(jid,result=json.dumps({'verdict':'error','message':'This search could not finish. Please try another clip.'}))
         finally:logpath.unlink(missing_ok=True)
+    except Cancelled:
+        store.update(jid,result=json.dumps({'verdict':'cancelled','message':'This search was cancelled.'}))
     except TimeoutError:
         result=json.loads(store.get(jid)['result'])
         if result.get('verdict') not in ('exact','probable'):
-            result={'verdict':'none','message':'We reached the search time limit without confirming a match. Try a clearer clip or add the song title.'}
+            result={'verdict':'timeout','message':'We reached the search time limit without confirming a match. Try a clearer clip or add the song title.'}
         store.update(jid,result=json.dumps(result),error='Processing time limit reached')
     except Exception as exc:
         store.update(jid,result=json.dumps({'verdict':'error','message':'We could not read the sound from this file. Try another video or recording.'}),error=type(exc).__name__+': '+str(exc)[:1000])
     finally:
         (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
-        store.update(jid,status='done')
+        store.update(jid,status='done',finished=time.time())
 
 def main():
     store.init()
@@ -90,7 +100,7 @@ def main():
         stale=c.execute("SELECT id,result FROM jobs WHERE status='working'").fetchall()
         for j in stale:
             result=json.loads(j['result'])
-            if result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. Please upload again.'}
+            if result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. You can retry using the retained audio.'}
             c.execute("UPDATE jobs SET status='done',result=?,updated=? WHERE id=?",(json.dumps(result),time.time(),j['id']))
             (store.ROOT/'uploads'/j['id']).unlink(missing_ok=True)
     last_purge=0
@@ -100,7 +110,7 @@ def main():
         with store.db() as c:
             c.execute('BEGIN IMMEDIATE')
             row=c.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created LIMIT 1").fetchone()
-            if row:c.execute("UPDATE jobs SET status='working',updated=? WHERE id=?",(time.time(),row['id']))
+            if row:c.execute("UPDATE jobs SET status='working',updated=?,started=? WHERE id=?",(time.time(),time.time(),row['id']))
         if row:process(dict(row))
         else:time.sleep(1)
 

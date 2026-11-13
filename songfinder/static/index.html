@@ -38,17 +38,20 @@ progress{width:100%;height:6px;accent-color:var(--brass)}
 </style></head><body><main>
 <a class="logo" href="/">song<i>·</i>finder</a>
 
+<div id="verify"></div>
+<p id="sessionmsg" class="small" aria-live="polite"></p>
 <section id="home" hidden style="display:flex;flex-direction:column;gap:18px">
 <h1>What song was that?</h1>
 <p class="soft">Upload a video or recording with music in it. Find the recording, a link to listen, and whether your clip was slowed down or sped up.</p>
 <div id="err" class="msg" hidden></div>
 <input id="file" type="file" accept="video/*,audio/*" hidden>
-<div id="verify"></div>
+
 <button id="pick" disabled class="btn brass" type="button">Choose a video or recording</button>
 <div id="up" hidden><p class="small" id="upt">Uploading…</p><progress id="bar" max="1" value="0"></progress></div>
 <p class="small" style="text-align:center">Up to 500 MB · First 10 minutes · At least 20 seconds of music.</p>
 <div><label for="title">Know the title? It helps with rare recordings.</label>
-<input id="title" type="text" placeholder="Optional" autocomplete="off"></div>
+<input id="title" type="text" placeholder="Optional" autocomplete="off" maxlength="120"></div>
+<div><label for="artist">Know the performer?</label><input id="artist" type="text" placeholder="Optional" autocomplete="off" maxlength="120"></div>
 <p class="small" style="margin-top:auto">The video is deleted after we extract its sound. Audio is kept privately for 14 days to help diagnose mistakes, then deleted. A short excerpt may be sent to a music recognition service. Result links last 90 days; anyone with the link can see the result, but cannot play your audio.</p>
 <div id="recent" class="card" hidden><span class="cap">Your recent clips</span><div id="recentlinks" class="links"></div></div>
 </section>
@@ -56,6 +59,7 @@ progress{width:100%;height:6px;accent-color:var(--brass)}
 <section id="work" hidden style="display:flex;flex-direction:column;gap:18px">
 <h1>Looking for your song</h1>
 <p class="small" id="wname"></p><button id="workcopy" class="btn" type="button">Copy link to this search</button>
+<button id="cancel" hidden class="btn" type="button">Cancel search</button><p id="cancelmsg" class="small" aria-live="polite"></p>
 <div class="steps" id="steps" aria-live="polite"></div>
 <p class="soft">Well-known songs take a few seconds. Rare or slowed-down ones can take up to six minutes. You can close this page and come back with the same link.</p>
 </section>
@@ -71,8 +75,15 @@ progress{width:100%;height:6px;accent-color:var(--brass)}
 <p class="tip" id="tip" hidden></p>
 <details id="evidence" class="card"><summary>Why this result?</summary><p id="why" class="small"></p></details>
 <div class="card" id="feedback"><p>Is this the right song?</p><div class="grid"><button class="btn" id="yes">Yes</button><button class="btn" id="no">No</button></div><p class="small" id="feedbackmsg" aria-live="polite"></p></div>
+<form id="retry" class="card" hidden style="gap:12px">
+<p class="cap">Try again with a clue</p><p class="small">Use the retained audio without uploading again. It is still deleted 14 days after the original upload.</p>
+<div><label for="retrytitle">Song title</label><input id="retrytitle" type="text" maxlength="120" placeholder="Optional"></div>
+<div><label for="retryartist">Performer</label><input id="retryartist" type="text" maxlength="120" placeholder="Optional"></div>
+<button class="btn brass" id="retrybutton" type="submit">Search again</button><p id="retrymsg" class="small" aria-live="polite"></p>
+</form>
 <button class="btn" id="copy" type="button">Copy link to this result</button>
 <a class="btn" href="/">Find another song</a>
 </section>
+<footer class="small"><a href="https://github.com/anopows/songfinder" target="_blank" rel="noopener noreferrer">About Songfinder · Source &amp; feedback</a></footer>
 </main>
 <script src="/app.js" defer></script></body></html>

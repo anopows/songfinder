@@ -181,9 +181,13 @@ def preview_matches(preview_url: str, reference, clip: Query | None, reference_i
 # ------------------------------------------------------------------ assembling
 def _hint_for(data: dict, top: dict) -> list[dict]:
     hints = data.get("shazam_hints") or []
-    same = [h for h in hints if title_matches(clean_title(h.get("title", "")), top.get("title", ""))
-            or title_matches(top.get("title", ""), clean_title(h.get("title", "")))]
-    return same or hints[:1]
+    # A title can name many performances. Do not borrow another artist's ISRC
+    # or listening links merely because the composition agrees.
+    artist=set(tokens(top.get('artist','')))
+    return [h for h in hints if artist and set(tokens(h.get('artist','')))==artist
+            and (title_matches(clean_title(h.get('title','')),top.get('title',''))
+                 or title_matches(top.get('title',''),clean_title(h.get('title',''))))]
+
 
 
 def build_links(data: dict, clip: Query | None, cache, spotify: Spotify | None = None,
@@ -235,9 +239,9 @@ def build_links(data: dict, clip: Query | None, cache, spotify: Spotify | None =
             else:
                 add(platform_of(pair[1]), pair[1], "search" if "search" in pair[0].lower() else "recogniser")
     if spotify and spotify.available:
-        raw_title = hints[0]["title"] if hints else top.get("title", "")
+        raw_title = top.get("title", "")
         title = clean_title(raw_title)
-        artist = hints[0].get("artist", "") if hints else clean_channel(top.get("artist", ""))
+        artist = clean_channel(top.get("artist", ""))
         if not artist:                           # "Tea for Two (feat. Luca Filastro)" still names someone
             m = re.search(r"\b(?:feat\.?|featuring|ft\.)\s+([^\)\]]+)", raw_title, re.I)
             artist = m.group(1).strip() if m else ""

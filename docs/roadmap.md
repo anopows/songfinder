@@ -1,8 +1,22 @@
 # Improvement roadmap
 
 Keep the deployed API and worker while testing recognition changes independently.
-The highest priorities are trustworthy results and predictable search time. This is a
-proposed sequence, not a claim that the features below are already implemented.
+The highest priorities are trustworthy results and predictable search time. The original
+sequence is retained below; the release status here takes precedence.
+
+## Implemented in the November 13 follow-up
+
+Confirmed labels and performer-aware link hints; an optional fingerprint shortlist with
+full-scan fallback; disjoint confirmation with detail/attack checks; owner-authorized
+retained-audio retries, artist hints, cancellation and session renewal; distinct incomplete
+result states; indexable homepage with sharing metadata; private aggregate metrics and
+SQLite backup/restore validation. See [release evidence](release-2026-11-13.md).
+
+The evaluation harness and fresh public-preview comparisons are implemented. A larger
+human-labelled field evaluation, speech detection/edit-aware passage selection, actual
+Android network-interruption tests and additional providers remain follow-up work.
+The frozen synthetic benchmark still contains a false exact match; do not claim perfect
+performance-level identification or interpret the earlier investigated 40 clips as blind accuracy.
 
 ## 1. Preserve the identity of the confirmed recording
 

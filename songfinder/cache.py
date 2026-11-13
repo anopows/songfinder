@@ -56,6 +56,15 @@ class FeatureCache:
                 if meta.get("version") == FEATURE_VERSION and meta.get("key"):
                     yield meta
 
+    def shortlist(self, feats, limit=12):
+        if not self.root:return []
+        from .retrieval import LandmarkIndex
+        try:
+            return [m for m in LandmarkIndex(self.root).shortlist(feats, limit)
+                    if os.path.isfile(self._path(m['key']))]
+        except Exception:
+            return []  # retrieval is optional; never let it disable verification
+
     def put(self, key: str, feats: np.ndarray, meta: dict) -> None:
         if not self.root:
             return
@@ -71,3 +80,8 @@ class FeatureCache:
         finally:
             if os.path.exists(tmp):
                 os.remove(tmp)
+
+        # Index maintenance must not make a successfully cached reference unusable.
+        from .retrieval import LandmarkIndex
+        try:LandmarkIndex(self.root).put(key, feats, meta)
+        except Exception:pass

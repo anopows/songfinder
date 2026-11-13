@@ -8,8 +8,8 @@ Three steps:
               coarse rate grid; the best few positions per window are kept.
   consensus - windows matched independently must fall on one line (same rate,
               offset and pitch). A wrong recording almost never manages that.
-  verify    - the whole clip is scored along the fitted line, refined, compared
-              with deliberately wrong offsets, and split into segments.
+  verify    - refine only on discovery passages, then score separate held-out
+              passages at a fixed transform; compare wrong offsets and timing.
 """
 from __future__ import annotations
 
@@ -79,6 +79,11 @@ class Verification:
     coverage: float
     overlap_s: float
     segments: list[tuple[float, float, float]] = field(default_factory=list)
+    holdout_similarity: float = 0.0
+    detail_similarity: float = 0.0
+    onset_similarity: float = 0.0
+    holdout_seconds: float = 0.0
+    holdout_windows: int = 0
     timing_spread: float = 0.0          # how far 5 s segments wander off the fitted line (s)
 
     @property
@@ -145,11 +150,13 @@ class Query:
     # ---------------------------------------------------------------- windows
     def _pick_windows(self, max_windows: int) -> None:
         d = self.duration
-        length = 10.0 if d >= 30 else max(4.0, d / 3)
-        n = int(min(max_windows, max(1, d // length)))
-        if n < 3 and d >= 8:
-            n = 3                                   # overlap rather than lose the consensus test
-        starts = np.linspace(0.0, d - length - 2.0 / FPS_LO, n) if n > 1 else np.array([0.0])
+        # Discovery and confirmation alternate, with a guard between them.
+        # Only discovery passages may select/refine speed, pitch or offset.
+        length = min(5.0, d / 6.5)
+        n = min(max_windows, max(3, int(d // (2 * length + .3))))
+        cells = np.linspace(0.0, d - (2 * length + .3), n)
+        starts = cells
+        self.holdouts = [(float(t+length+.3), float(t+2*length+.3)) for t in cells]
         self.window_len = length
         self.windows: list[tuple[float, float]] = []
         self.W: list[list[np.ndarray]] = []
@@ -281,11 +288,15 @@ class Query:
         x = (np.arange(j0, j1) / FPS - offset) / rate * FPS
         return _interp_time(self.Qc, x), rp[:, j0:j1], x
 
-    def _sim(self, rp: np.ndarray, rate: float, offset: float) -> tuple[float, float]:
+    def _sim(self, rp: np.ndarray, rate: float, offset: float, discovery=False) -> tuple[float, float]:
         al = self._aligned(rp, rate, offset)
         if al is None:
             return 0.0, 0.0
         q, r, x = al
+        if discovery:
+            mask = np.zeros(len(x), dtype=bool)
+            for a,b in self.windows:mask |= (x/FPS >= a) & (x/FPS < b)
+            q,r=q[:,mask],r[:,mask]
         den = math.sqrt(float(np.sum(q * q, dtype=np.float64)) * float(np.sum(r * r, dtype=np.float64)))
         sim = float(np.sum(q * r, dtype=np.float64)) / den if den > 1e-9 else 0.0
         return sim, (x[-1] - x[0]) / FPS
@@ -298,7 +309,7 @@ class Query:
             for r in rates:
                 for c in centres:
                     off = c - r * tc
-                    s, _ = self._sim(rp, r, off)
+                    s, _ = self._sim(rp, r, off, discovery=True)
                     if s > best[0]:
                         best = (s, float(r), float(off))
             return best
@@ -310,7 +321,7 @@ class Query:
                               c0 + np.arange(-8, 9) * 0.04)
         best_p = (-1.0, p)
         for dp in np.arange(-6, 7) * 0.25:          # fractional pitch
-            s, _ = self._sim(self._ref_bands(ref, p + dp), rate, off)
+            s, _ = self._sim(self._ref_bands(ref, p + dp), rate, off, discovery=True)
             if s > best_p[0]:
                 best_p = (s, p + dp)
         p = best_p[1]
@@ -318,7 +329,7 @@ class Query:
         c0 = off + rate * tc
         sim, rate, off = search(rp, rate * (1 + np.arange(-10, 11) * 0.0002),
                                 c0 + np.arange(-6, 7) * 0.01)
-        _, overlap = self._sim(rp, rate, off)
+        sim, overlap = self._sim(rp, rate, off)
 
         # Same line shifted to wrong positions gives this reference's own noise floor.
         null = []
@@ -349,8 +360,31 @@ class Query:
                     segments.append((float(a), float(min(a + SEGMENT_S, self.duration)),
                                      float(np.sum(qs * rs)) / den))
         coverage = float(np.mean([s >= SEGMENT_OK for *_, s in segments])) if segments else 0.0
+        holdout, detail, onset, seconds, count = self._held_out(rp, rate, off)
         return Verification(rate, off, p, sim, z, med, spread, coverage, overlap, segments,
+                            holdout, detail, onset, seconds, count,
                             self._timing_spread(rp, rate, off))
+
+    def _held_out(self, rp, rate, off):
+        # Fixed transform: no lag search or refitting on confirmation passages.
+        al = self._aligned(rp, rate, off)
+        if al is None:return (0.,0.,0.,0.,0)
+        q,r,x = al; values=[];seconds=0.
+        def cosine(a,b):
+            den=float(np.linalg.norm(a)*np.linalg.norm(b))
+            return float(np.sum(a*b))/den if den>1e-8 else 0.
+        for a,b in self.holdouts:
+            mask=(x/FPS>=a)&(x/FPS<b)
+            if mask.sum()<FPS:continue
+            qs,rs=q[:,mask],r[:,mask]
+            # Adjacent-band detail and 120 ms positive spectral changes emphasize
+            # harmonics and attacks that a similar melody alone cannot establish.
+            values.append((cosine(qs,rs),cosine(np.diff(qs,axis=0),np.diff(rs,axis=0)),
+                           cosine(np.maximum(qs[:,3:]-qs[:,:-3],0),np.maximum(rs[:,3:]-rs[:,:-3],0))))
+            seconds+=mask.sum()/FPS/rate
+        if not values:return (0.,0.,0.,0.,0)
+        scores=np.mean(values,axis=0)
+        return (*map(float,scores),seconds,len(values))
 
     def _timing_spread(self, rp: np.ndarray, rate: float, off: float) -> float:
         """Let every 5 s segment slide a little and see where it fits best.
@@ -399,10 +433,15 @@ class Query:
 
 
 def decide(fit: Fit, ver: Verification) -> str:
+    independent = (ver.holdout_windows >= 2 and ver.holdout_seconds >= 4
+                   and ver.holdout_similarity >= .22 and ver.detail_similarity >= .12
+                   and ver.onset_similarity >= .30)
     strong = ver.similarity >= PROB_SIM and ver.z >= PROB_Z
+    if strong and not independent:return "related"
     if strong and ver.timing_spread > MAX_TIMING_SPREAD_S:
         return "related"                # same arrangement, but not this recording
-    if (ver.similarity >= EXACT_SIM and ver.z >= EXACT_Z and fit.n_windows >= EXACT_WINDOWS
+    if (independent and ver.holdout_similarity >= .45 and ver.detail_similarity >= .25
+            and ver.similarity >= EXACT_SIM and ver.z >= EXACT_Z and fit.n_windows >= EXACT_WINDOWS
             and ver.coverage >= EXACT_COVERAGE and ver.overlap_s >= EXACT_OVERLAP_S):
         return "exact"
     return "probable" if strong else "none"

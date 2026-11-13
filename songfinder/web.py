@@ -90,14 +90,18 @@ def _summarise(report: dict) -> dict:
     rs.sort(key=lambda r: (order[r["decision"]], r["decision"] == "exact" and r.get("audio") == "full",
                            r.get("similarity", 0)), reverse=True)
     if not rs:
+        if any(r.get('decision')=='related' for r in report.get('results',[])):
+            return {'verdict':'related','message':'We found a similar arrangement, but could not confirm the same recording. Add the performer or title to try again.'}
+        if report.get('provider_issues') or (report.get('results') and all(r.get('error') for r in report['results'])):
+            return {'verdict':'unavailable','message':'Some music services were unavailable or at their request limit. We could not confirm a recording. Please retry later.'}
+        if report.get('shazam_hints'):
+            return {'verdict':'unconfirmed','message':'A recognition service suggested a song, but the available audio did not confirm its recording. Add the performer or title to narrow the search.'}
         return {"verdict": "none"}
     top = rs[0]
     title, artist = top.get("title") or "Untitled", top.get("artist") or ""
-    for h in report.get("shazam_hints", []):        # a recogniser's credit beats an upload's channel name
-        ht = re.sub(r"\s*[\(\[].*$", "", h.get("title", "")).strip().lower()
-        if ht and ht in title.lower():
-            title, artist = h["title"], h.get("artist") or artist
-            break
+    # Identity belongs to the audio-confirmed candidate. A recognizer can name
+    # another performance of the same composition, so title agreement cannot
+    # authorize replacing the winning artist or title.
     # The report's links are already ordered best first (Spotify first). One per
     # service, and never a recognition engine's own page.
     links, seen = [], set()

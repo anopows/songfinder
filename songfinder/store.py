@@ -38,6 +38,12 @@ def init():
           used INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, blocked_until REAL NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         ''')
+        columns={r[1] for r in c.execute('PRAGMA table_info(jobs)')}
+        for name,kind in [('artist',"TEXT NOT NULL DEFAULT ''"),('audio_id',"TEXT NOT NULL DEFAULT ''"),
+                          ('audio_created','REAL NOT NULL DEFAULT 0'),('cancel_requested','INTEGER NOT NULL DEFAULT 0'),
+                          ('started','REAL'),('finished','REAL')]:
+            if name not in columns:c.execute(f'ALTER TABLE jobs ADD COLUMN {name} {kind}')
+        c.execute("UPDATE jobs SET audio_id=id,audio_created=created WHERE audio_id=''")
         c.execute('INSERT OR IGNORE INTO meta VALUES (?,?)', ('ip_salt', secrets.token_hex(32)))
 
 def get(jid):
@@ -46,7 +52,7 @@ def get(jid):
     return dict(row) if row else None
 
 def update(jid, **values):
-    allowed = {'status','received','steps','result','report','feedback','error','owner'}
+    allowed = {'status','received','steps','result','report','feedback','error','owner','cancel_requested','started','finished'}
     if not values.keys() <= allowed: raise ValueError('Invalid fields')
     values['updated'] = time.time()
     with db() as c:
@@ -76,7 +82,7 @@ def allow(key, cap, seconds):
         c.execute('INSERT INTO limits VALUES (?,?)',(key,now))
         return True
 
-def reserve_job(owner, iphash, size, name, hint):
+def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
     now=time.time()
     with db() as c:
         c.execute('BEGIN IMMEDIATE')
@@ -86,9 +92,19 @@ def reserve_job(owner, iphash, size, name, hint):
             if count>=cap:raise ValueError('The upload limit has been reached. Please try again later.')
         if c.execute("SELECT count(*) FROM jobs WHERE status IN ('uploading','queued','working')").fetchone()[0]>=MAX_WAITING:
             raise ValueError('The queue is full. Please try again in a few minutes.')
+        original=None
+        if retry_from:
+            original=c.execute('SELECT * FROM jobs WHERE id=?',(retry_from,)).fetchone()
+            if not original or original['owner']!=owner or original['status']!='done':
+                raise ValueError('This retry is unavailable.')
+            if original['audio_created']<now-14*86400 or not (ROOT/'audio'/f"{original['audio_id']}.m4a").is_file():
+                raise ValueError('The retained audio has expired. Please upload again.')
         jid=secrets.token_urlsafe(16)
         c.execute('INSERT INTO jobs(id,created,updated,status,owner,size,name,hint) VALUES (?,?,?,?,?,?,?,?)',
                   (jid,now,now,'uploading',owner,size,name[:120],hint[:120]))
+        c.execute('UPDATE jobs SET artist=?,audio_id=?,audio_created=?,status=? WHERE id=?',
+                  (artist[:120],original['audio_id'] if original else jid,
+                   original['audio_created'] if original else now,'queued' if original else 'uploading',jid))
         c.executemany('INSERT INTO limits VALUES (?,?)',[('clip:'+iphash,now),('global',now)])
     return jid
 
@@ -112,11 +128,11 @@ def block(service, seconds):
 def purge(now=None):
     now=now or time.time()
     with db() as c:
-        rows=c.execute('SELECT id,created,status,updated FROM jobs').fetchall()
+        rows=c.execute('SELECT id,created,status,updated,audio_id,audio_created FROM jobs').fetchall()
         for r in rows:
             jid=r['id']
-            if r['created']<now-14*86400:
-                (ROOT/'audio'/f'{jid}.m4a').unlink(missing_ok=True)
+            if r['audio_created']<now-14*86400:
+                (ROOT/'audio'/f"{r['audio_id']}.m4a").unlink(missing_ok=True)
             if r['status']=='uploading' and r['updated']<now-3600:
                 (ROOT/'uploads'/jid).unlink(missing_ok=True)
                 c.execute("UPDATE jobs SET status='done',result=?,updated=? WHERE id=?",
@@ -124,15 +140,21 @@ def purge(now=None):
             if r['created']<now-90*86400 and r['status']=='done':
                 c.execute('DELETE FROM jobs WHERE id=?',(jid,))
         c.execute('DELETE FROM limits WHERE ts<?',(now-86400,))
-        # Owner cookies are no longer useful once a clip has completed.
-        c.execute("UPDATE jobs SET owner='' WHERE status='done' AND updated<?",(now-86400,))
+        # Keep ownership only while the retained audio can be retried.
+        c.execute("UPDATE jobs SET owner='' WHERE status='done' AND audio_created<?",(now-14*86400,))
     known={r['id'] for r in rows}
     for path in (ROOT/'uploads').iterdir():
         if path.name not in known and path.stat().st_mtime<now-3600:
             if path.is_dir():shutil.rmtree(path)
             else:path.unlink(missing_ok=True)
-    cache_files=sorted((p for p in (ROOT/'cache').rglob('*') if p.is_file()),key=lambda p:p.stat().st_mtime)
+    cache_files=sorted((p for p in (ROOT/'cache').rglob('*') if p.is_file() and not p.name.startswith('retrieval.sqlite3')),key=lambda p:p.stat().st_mtime)
     total=sum(p.stat().st_size for p in cache_files)
     for p in cache_files:
         if total<=4*1024**3:break
         total-=p.stat().st_size;p.unlink(missing_ok=True)
+
+    # Remove landmarks for evicted references; keep retrieval storage bounded too.
+    from .cache import FeatureCache
+    from .retrieval import LandmarkIndex
+    try:LandmarkIndex(ROOT/'cache').prune({m['key'] for m in FeatureCache(str(ROOT/'cache')).entries()})
+    except Exception:pass  # cache retrieval remains optional

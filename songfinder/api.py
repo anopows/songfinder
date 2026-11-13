@@ -1,5 +1,6 @@
 """Public HTTP boundary. The separately supervised worker handles all media."""
 from __future__ import annotations
+import html, statistics
 import asyncio, base64, contextlib, hashlib, hmac, json, os, secrets, shutil, time
 from pathlib import Path
 import httpx
@@ -40,7 +41,7 @@ async def boundary(request, call_next):
         if size<0 or size>limit:return JSONResponse({'error':'Request is too large.'},status_code=413)
     response=await call_next(request)
     response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
-        'Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Robots-Tag':'noindex, nofollow',
+        'Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Robots-Tag':'index, follow' if request.url.path in ('/','/robots.txt','/sitemap.xml') else 'noindex, nofollow',
         'Permissions-Policy':'camera=(), microphone=(self), geolocation=()',
         'Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; img-src 'self' data:; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"})
     return response
@@ -50,23 +51,30 @@ def ip(request):
     if host in ('127.0.0.1','::1'):host=request.headers.get('x-real-ip',host)
     return host
 
-def token(role):
-    data=f'{role}:{int(time.time()+3600)}:{secrets.token_urlsafe(24)}'
+def token(role, identity=None, ttl=3600):
+    data=f'{role}:{int(time.time()+ttl)}:{identity or secrets.token_urlsafe(24)}'
     sig=hmac.new((SESSION_SECRET or 'local-test-only').encode(),data.encode(),hashlib.sha256).hexdigest()
     return data+':'+sig
 
-def session(request,role='visitor'):
-    value=request.cookies.get('sf_admin' if role=='admin' else 'sf_session','')
+def read_token(value,role):
     try:
-        data,sig=value.rsplit(':',1)
-        kind,expires,_=data.split(':')
+        data,sig=value.rsplit(':',1);kind,expires,identity=data.split(':')
         good=hmac.new((SESSION_SECRET or 'local-test-only').encode(),data.encode(),hashlib.sha256).hexdigest()
         if kind!=role or int(expires)<time.time() or not hmac.compare_digest(sig,good):raise ValueError()
-        return hashlib.sha256(value.encode()).hexdigest()
-    except (ValueError,TypeError):raise HTTPException(401,'Please verify to continue.' if role=='visitor' else 'Please sign in.')
+        return identity
+    except (ValueError,TypeError):return None
 
-def set_cookie(response,role):
-    response.set_cookie('sf_admin' if role=='admin' else 'sf_session',token(role),max_age=3600,
+def owner_identity(request):
+    return read_token(request.cookies.get('sf_owner',''),'owner')
+
+def session(request,role='visitor'):
+    value=request.cookies.get('sf_admin' if role=='admin' else 'sf_session','')
+    if not read_token(value,role):raise HTTPException(401,'Please verify to continue.' if role=='visitor' else 'Please sign in.')
+    return (owner_identity(request) if role=='visitor' else None) or hashlib.sha256(value.encode()).hexdigest()
+
+def set_cookie(response,role,identity=None,ttl=3600):
+    name={'admin':'sf_admin','owner':'sf_owner','visitor':'sf_session'}[role]
+    response.set_cookie(name,token(role,identity,ttl),max_age=ttl,
                         secure=ORIGIN.startswith('https:'),httponly=True,samesite='strict',path='/')
 
 async def small_json(request):
@@ -100,7 +108,28 @@ def job_or_404(jid):
 
 @app.get('/')
 @app.get('/c/{jid}')
-async def page():return FileResponse(STATIC/'index.html',media_type='text/html')
+async def page(request:Request):
+    content=(STATIC/'index.html').read_text()
+    if request.url.path=='/':
+        origin=html.escape(ORIGIN,quote=True)
+        content=content.replace('<meta name="robots" content="noindex">',
+            '<meta name="robots" content="index,follow">'
+            '<meta name="description" content="Find the recording behind a video or audio clip, including slowed-down music. Get listening links and playback speed.">'
+            f'<link rel="canonical" href="{origin}/">'
+            '<meta property="og:type" content="website">'
+            '<meta property="og:title" content="song·finder — Find the recording behind your clip">'
+            '<meta property="og:description" content="Upload a video or recording. Find the song, a listening link, and its speed in your clip.">'
+            f'<meta property="og:url" content="{origin}/">'
+            '<meta name="twitter:card" content="summary">')
+    return HTMLResponse(content)
+
+@app.get('/robots.txt')
+async def robots():
+    return HTMLResponse(f'User-agent: *\nAllow: /$\nDisallow: /c/\nDisallow: /api/\nDisallow: /admin\nSitemap: {ORIGIN}/sitemap.xml\n',media_type='text/plain')
+
+@app.get('/sitemap.xml')
+async def sitemap():
+    return HTMLResponse('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+html.escape(ORIGIN)+'/</loc></url></urlset>',media_type='application/xml')
 
 @app.get('/app.js')
 async def script():return FileResponse(STATIC/'app.js',media_type='text/javascript')
@@ -124,7 +153,12 @@ async def make_session(request:Request):
     if not store.allow('session:'+store.ip_key(ip(request)),20,3600):raise HTTPException(429,'Please try again later.')
     body=await small_json(request)
     await verify(request,body.get('token'))
-    response=JSONResponse({'ok':True});set_cookie(response,'visitor');return response
+    identity=owner_identity(request)
+    if not identity:
+        try:identity=session(request)  # preserve an upload started before this release
+        except HTTPException:identity=secrets.token_hex(32)
+    response=JSONResponse({'ok':True});set_cookie(response,'visitor')
+    set_cookie(response,'owner',identity,14*86400);return response
 
 @app.post('/api/clips')
 async def create(request:Request):
@@ -133,9 +167,9 @@ async def create(request:Request):
     if isinstance(size,bool) or not isinstance(size,int) or not 0<size<=store.MAX_BYTES:
         raise HTTPException(413,'Choose a file up to 500 MB.')
     if shutil.disk_usage(store.ROOT).free<6*1024**3:raise HTTPException(503,'Storage is busy. Please try again later.')
-    name=body.get('name','');hint=body.get('title','')
-    if not isinstance(name,str) or not isinstance(hint,str):raise HTTPException(400,'Invalid clip details.')
-    try:jid=store.reserve_job(owner,store.ip_key(ip(request)),size,name,hint.strip())
+    name=body.get('name','');hint=body.get('title','');artist=body.get('artist','')
+    if not isinstance(name,str) or not isinstance(hint,str) or not isinstance(artist,str):raise HTTPException(400,'Invalid clip details.')
+    try:jid=store.reserve_job(owner,store.ip_key(ip(request)),size,name,hint.strip(),artist.strip())
     except ValueError as e:raise HTTPException(429,str(e))
     return {'id':jid,'part_bytes':store.PART_BYTES}
 
@@ -186,12 +220,50 @@ async def complete(jid:str,request:Request):
     return {'id':jid}
 
 @app.get('/api/clips/{jid}')
-async def status(jid:str):
+async def status(jid:str,request:Request):
     j=job_or_404(jid)
     out={k:j[k] for k in ('id','created','status','name','hint','feedback')}
+    owns=owner_identity(request)==j['owner'] and bool(j['owner'])
+    if not owns:
+        try:owns=session(request)==j['owner']
+        except HTTPException:pass
+    out['can_retry']=bool(owns and j['status']=='done' and j['audio_created']>=time.time()-14*86400 and (store.ROOT/'audio'/f"{j['audio_id']}.m4a").is_file())
+    out['can_cancel']=bool(owns and j['status']!='done')
+    out['artist_hint']=j['artist'] if owns else ''
     out['steps']=json.loads(j['steps']);out.update(json.loads(j['result']))
+    # Reformat stored reports so historical results also get the identity fix.
+    report=json.loads(j['report'])
+    if report.get('results') and out.get('verdict') in ('exact','probable'):
+        from .web import _summarise
+        out.update(_summarise(report))
     with store.db() as c:out['ahead']=c.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','working') AND created<?",(j['created'],)).fetchone()[0]
     return out
+
+@app.post('/api/clips/{jid}/retry')
+async def retry(jid:str,request:Request):
+    owner=session(request);j=job_or_404(jid);body=await small_json(request)
+    if j['owner']!=owner:raise HTTPException(403,'Only the uploader can retry this clip.')
+    title=body.get('title','');artist=body.get('artist','')
+    if not isinstance(title,str) or not isinstance(artist,str):raise HTTPException(400,'Invalid search details.')
+    try:new_id=store.reserve_job(owner,store.ip_key(ip(request)),0,j['name'],title.strip(),artist.strip(),retry_from=jid)
+    except ValueError as e:raise HTTPException(409,str(e))
+    return {'id':new_id}
+
+@app.post('/api/clips/{jid}/cancel')
+async def cancel(jid:str,request:Request):
+    owner=session(request);j=job_or_404(jid)
+    if j['owner']!=owner:raise HTTPException(403,'Only the uploader can cancel this search.')
+    async with locks.setdefault(jid,asyncio.Lock()):
+        with store.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            j=dict(c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone())
+            if j['status'] in ('uploading','queued'):
+                c.execute("UPDATE jobs SET status='done',cancel_requested=1,result=?,updated=?,finished=? WHERE id=?",
+                          (json.dumps({'verdict':'cancelled','message':'This search was cancelled.'}),time.time(),time.time(),jid))
+                (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
+            elif j['status']=='working':c.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?',(jid,))
+    locks.pop(jid,None)
+    return {'ok':True}
 
 @app.post('/api/clips/{jid}/feedback')
 async def feedback(jid:str,request:Request):
@@ -214,10 +286,29 @@ async def admin_login(request:Request):
     except Exception:raise HTTPException(401,'Incorrect password.')
     response=JSONResponse({'ok':True});set_cookie(response,'admin');return response
 
+@app.get('/api/admin/metrics')
+async def metrics(request:Request):
+    session(request,'admin')
+    with store.db() as c:
+        rows=c.execute('SELECT status,created,started,finished,result,report FROM jobs WHERE created>?',(time.time()-7*86400,)).fetchall()
+        budgets=[dict(r) for r in c.execute('SELECT service,day,used,blocked_until FROM service_budget')]
+    counts={};waits=[];durations=[];unavailable=0
+    for row in rows:
+        verdict=json.loads(row['result']).get('verdict',row['status'])
+        counts[verdict]=counts.get(verdict,0)+1
+        unavailable+=bool(json.loads(row['report']).get('provider_issues'))
+        if row['started']:waits.append(max(0,row['started']-row['created']))
+        if row['started'] and row['finished']:durations.append(max(0,row['finished']-row['started']))
+    return {'days':7,'jobs':len(rows),'outcomes':counts,'source_issues':unavailable,
+            'median_queue_seconds':round(statistics.median(waits),1) if waits else None,
+            'median_processing_seconds':round(statistics.median(durations),1) if durations else None,
+            'p95_processing_seconds':round(sorted(durations)[min(len(durations)-1,int(len(durations)*.95))],1) if durations else None,
+            'provider_budgets':budgets}
+
 @app.get('/api/admin/clips')
 async def admin_clips(request:Request):
     session(request,'admin')
-    with store.db() as c:rows=c.execute('SELECT id,created,status,name,hint,result,feedback,error FROM jobs ORDER BY created DESC LIMIT 100').fetchall()
+    with store.db() as c:rows=c.execute('SELECT id,created,audio_created,status,name,hint,result,feedback,error FROM jobs ORDER BY created DESC LIMIT 100').fetchall()
     return {'clips':[dict(r) for r in rows]}
 
 @app.get('/api/admin/clips/{jid}')
@@ -228,15 +319,17 @@ async def admin_clip(jid:str,request:Request):
 @app.get('/api/admin/clips/{jid}/audio')
 async def audio(jid:str,request:Request):
     session(request,'admin');j=job_or_404(jid)
-    path=store.ROOT/'audio'/f'{jid}.m4a'
-    if j['created']<time.time()-14*86400 or not path.is_file():raise HTTPException(404,'Audio has expired or is unavailable.')
+    path=store.ROOT/'audio'/f"{j['audio_id']}.m4a"
+    if j['audio_created']<time.time()-14*86400 or not path.is_file():raise HTTPException(404,'Audio has expired or is unavailable.')
     return FileResponse(path,media_type='audio/mp4')
 
 @app.post('/api/admin/clips/{jid}/delete')
 async def delete(jid:str,request:Request):
     session(request,'admin');j=job_or_404(jid)
     if j['status']!='done':raise HTTPException(409,'Wait for this search to finish.')
-    (store.ROOT/'audio'/f'{jid}.m4a').unlink(missing_ok=True)
     (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
-    with store.db() as c:c.execute('DELETE FROM jobs WHERE id=?',(jid,))
+    with store.db() as c:
+        c.execute('DELETE FROM jobs WHERE id=?',(jid,))
+        if not c.execute('SELECT 1 FROM jobs WHERE audio_id=?',(j['audio_id'],)).fetchone():
+            (store.ROOT/'audio'/f"{j['audio_id']}.m4a").unlink(missing_ok=True)
     return {'ok':True}

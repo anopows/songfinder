@@ -5,6 +5,9 @@ band playing the same arrangement is a particularly difficult negative example.
 
 ## Candidate discovery
 
+An optional SQLite landmark index proposes up to 12 cached references first. Relative
+pitch and time triplets tolerate speed and pitch changes; the shortlist never supplies a
+verdict. A miss falls back to the full cached catalogue and online discovery.
 A supplied title searches cached references before online catalogues. Without a title,
 optional recognizers propose leads; cached recordings and available public references
 are then compared. A recognizer response or matching title is not sufficient evidence
@@ -22,10 +25,13 @@ along with speed. Multiple passages must agree with one time mapping:
 
 `reference time = offset + rate × clip time`
 
-It then checks alignment similarity, separation from wrong offsets, coverage and timing
-stability in shorter segments. Timing drift helps distinguish a related arrangement from
-the same recording. The CLI can report exact, probable, related or no match; the current
-web result formatter exposes exact, probable and no match, with errors handled separately.
+Discovery and confirmation passages are disjoint, with a guard interval. Only discovery
+passages can refine the speed, pitch and offset. Confirmation uses the fixed mapping to
+measure spectral similarity, adjacent-band detail and positive spectral changes (attacks).
+Whole-clip wrong-offset separation, coverage and timing stability remain additional gates.
+These tests reduce ambiguity but cannot guarantee rejection of every alternate performance.
+The website distinguishes exact, probable, related, unconfirmed, sources unavailable,
+timeout, cancelled and no match. Displayed identity always comes from the matched candidate.
 
 The displayed speed is relative to the selected reference. Transfers of an old recording
 can differ slightly in speed even when they contain the same performance. The start
@@ -41,10 +47,10 @@ in every country.
 
 ## Validation status
 
-The release has 25 automated tests and two live public-sample smoke checks: a normal-speed
-recording and a pitch-preserving slowed recording. Tests cover matcher behavior, link
-handling, upload sessions and ownership, chunk retries, rate budgets, retention and cached
-references beyond the online candidate limit.
+Automated tests cover matcher behavior, disjoint confirmation, retrieval fallback, link
+handling, label provenance, ownership renewal, chunk retries, cancellation, rate budgets,
+retained-audio expiry, private routes and database restoration. Recorded results and
+limitations are in the [release validation](release-2026-11-13.md).
 
 Development also investigated a small collection of real clips, finding problems with
 same-arrangement false positives, artist credits, previews and provider throttling. That

@@ -67,6 +67,11 @@ def result_dict(r: Result) -> dict:
                   "similarity": round(v.similarity, 4), "noise_floor": round(v.null_median, 4),
                   "z": round(v.z, 1), "coverage": round(v.coverage, 3),
                   "overlap_s": round(v.overlap_s, 1),
+                  "holdout_similarity": round(v.holdout_similarity,4),
+                  "detail_similarity": round(v.detail_similarity,4),
+                  "onset_similarity": round(v.onset_similarity,4),
+                  "holdout_seconds": round(v.holdout_seconds,2),
+                  "holdout_windows": v.holdout_windows,
                   "segments": [[a, b, round(s, 3)] for a, b, s in v.segments]})
     return d
 
@@ -207,9 +212,9 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         return not a.exhaustive and any(r.decision == "exact" and r.candidate.audio_kind == "full"
                                         for r in ranked)
 
-    def index(title: str | None = None):
+    def index(title: str | None = None, entries=None):
         out = []
-        for m in cache.entries():
+        for m in (cache.entries() if entries is None else entries):
             if m.get("source") not in SOURCES or (title and not title_matches(title, m.get("title", ""))):
                 continue
             out.append(Candidate(m["source"], m.get("url", ""), m.get("title", ""), m.get("artist", ""),
@@ -301,7 +306,9 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         emit(f"  {len(got)} track links read from {path}")
         given += got
     check(given, "your links", "your links")
-    if a.title:
+    if not found():
+        check(index(entries=cache.shortlist(q.F)), "fingerprint shortlist", "local fingerprints", cached=True)
+    if a.title and not found():
         check(index(a.title), "local index entries for the title", "local index", quick=True, cached=True)
     if a.title and sources and not found():
         emit(f'Searching for "{a.title}"' + (f" by {a.artist}" if a.artist else "") + ":")

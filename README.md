@@ -20,6 +20,8 @@ live version, or reissue can sound similar but feel different to practise with.
 - **Evidence-aware results:** exact and probable matches are distinguished. A
   recognizer's title suggestion is checked against audio before being accepted.
 - **Saved results:** keep an unlisted result link, return later, and leave feedback.
+- **Retry without uploading again:** the original browser can edit the title or performer
+  and reuse retained audio for up to 14 days. Cancel a queued or running search.
 
 <p align="center"><img src="docs/images/result.png" alt="Songfinder identifies Everybody Loves My Baby by Nirav Sanghani and the Pacific Six, with a Bandcamp link, 92.6 percent speed and a start position of 0:02." width="340"></p>
 
@@ -28,10 +30,10 @@ The screenshot uses a public sample. No visitor recordings are included in this 
 ## Use the website
 
 1. Open **[songfinder.andi.sh](https://songfinder.andi.sh)**.
-2. Add the title if you know it, then choose your file. At least 20 seconds of music helps.
+2. Add the title or performer if you know it, then choose your file. At least 20 seconds of music helps.
 3. Keep the result link while the search runs. A search can take up to six minutes;
    time spent waiting in the queue is additional.
-4. Listen to the proposed recording and use **Yes / No** to give feedback.
+4. Listen to the proposed recording and use **Yes / No** to give feedback. Use **Search again** to try a different clue without uploading again.
 
 A match identifies a recorded performance; it does not promise a particular mastering,
 pressing, audio quality, or availability in your country. Difficult clips can remain unresolved.
@@ -92,7 +94,8 @@ The core matcher, CLI, public API, separate queue worker, and deployment templat
 included. Private datasets, reference caches, credentials, and historical debug reports
 are excluded. The first public commit is a clean snapshot of the deployed implementation.
 
-See [How matching works](docs/matching.md) and the [improvement roadmap](docs/roadmap.md).
+See the [release validation and known limits](docs/release-2026-11-13.md),
+[How matching works](docs/matching.md) and the [improvement roadmap](docs/roadmap.md).
 Report reproducible problems in [GitHub Issues](https://github.com/anopows/songfinder/issues);
 please avoid posting private recordings, result URLs, credentials or personal information.
 

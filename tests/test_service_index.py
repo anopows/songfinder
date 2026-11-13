@@ -10,8 +10,8 @@ def test_cached_match_beyond_network_candidate_limit(monkeypatch):
     entries = [dict(source='bandcamp', url=f'https://band.bandcamp.com/track/{i}',
                     title='Everybody Loves My Baby', artist=f'Artist {i}')
                for i in range(120)]
-    cache = SimpleNamespace(entries=lambda: iter(entries))
-    query = SimpleNamespace(duration=42, windows=[1, 2, 3], window_len=10, rates=[.7, 1.4])
+    cache = SimpleNamespace(entries=lambda: iter(entries), shortlist=lambda f: [])
+    query = SimpleNamespace(F=None, duration=42, windows=[1, 2, 3], window_len=10, rates=[.7, 1.4])
     monkeypatch.setattr(cli, 'prepare_query', lambda *args, **kwargs: query)
     monkeypatch.setattr(cli, '_query_opts', lambda a: {})
     monkeypatch.setattr(cli, 'rank', lambda values: values)
