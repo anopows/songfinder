@@ -4,7 +4,21 @@ Keep the deployed API and worker while testing recognition changes independently
 The highest priorities are trustworthy results and predictable search time. This is a
 proposed sequence, not a claim that the features below are already implemented.
 
-## 1. Build an independent evaluation set
+## 1. Preserve the identity of the confirmed recording
+
+The current web formatter can replace a confirmed candidate's artist/title with an
+unverified recognizer hint when the song title matches. A constructed report with a
+confirmed Billy May performance and an earlier Charlie Barnet hint reproduces the
+wrong displayed artist, even though the reference link still belongs to the winner.
+This is a result-label bug; the reproduction does not establish that either artist
+was incorrectly matched by the audio engine in that test.
+
+Bind displayed identity to the audio-confirmed candidate. Only adopt recognizer
+metadata after establishing that it describes the same recording. Add regression
+cases where a known song has multiple performers and the first recognition lead
+fails verification.
+
+## 2. Build an independent evaluation set
 
 Freeze the engine and reference catalogue, then evaluate recordings that were not used
 to tune thresholds. Separate empty-cache discovery from warm-cache recognition. Include
@@ -15,7 +29,7 @@ Measure false exact matches, recall, median and tail latency, source outages, re
 per clip and resource use. Retain the existing cases as regression tests. Establish
 labels by listening rather than accepting another engine's verdict as ground truth.
 
-## 2. Make known recordings faster to retrieve
+## 3. Make known recordings faster to retrieve
 
 The current cache scan grows with the catalogue. Introduce a fingerprint index that
 returns a small candidate shortlist before the full matcher runs. Prioritize previously
@@ -25,7 +39,7 @@ verification gate; retrieval scores alone must not produce an exact result.
 Acceptance: shortlist recall and end-to-end accuracy do not regress as the catalogue
 grows, and tail latency is measured under the hosted service's CPU and memory limits.
 
-## 3. Strengthen performance-level verification
+## 4. Strengthen performance-level verification
 
 Reserve disjoint passages for verification that cannot choose or refit the initial
 speed/offset estimate. Evaluate fine spectral detail and transient alignment in addition
@@ -36,7 +50,7 @@ Acceptance: reject convincing alternate performances without losing true matches
 noisy or short recordings. Run each proposed gate as an isolated comparison first;
 more thresholds are not automatically better.
 
-## 4. Help users recover from an incomplete search
+## 5. Help users recover from an incomplete search
 
 Expose distinct states for a related arrangement, an unconfirmed title, provider
 unavailability, timeout and no useful lead. Offer an owner-authorized retry with an
@@ -46,7 +60,7 @@ again. Add cancellation and reliable session renewal for long-lived tabs.
 The frontend currently records Yes/No feedback but does not turn a rejected match into
 a guided correction flow. Improve that flow before adding more input methods.
 
-## 5. Improve service reliability and phone use
+## 6. Improve service reliability and phone use
 
 Measure recognition failures, queue latency, resource use and source availability.
 Exercise backup restoration, worker recovery, concurrent load alongside other hosted
