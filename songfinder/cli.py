@@ -315,7 +315,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         check(gather(a.title, a.artist, sources, emit), "catalogue search", "title search",
               quick=not a.artist)
 
-    use_shazam = a.shazam and not a.title
+    use_shazam = a.shazam
     # 2. Cheapest first: one round of Shazam on the unmodified clip (a few seconds).
     if use_shazam and not found():
         ask_shazam([1.0], min(3, a.shazam_calls), "clip as recorded", patience=1)
@@ -326,7 +326,7 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
     if use_shazam and not found():
         ask_shazam(RATES[1:], a.shazam_calls - notes["fingerprints"], "speed-corrected")
     # 5. Shazam does not know it: a second recogniser with another catalogue.
-    if a.audd and not a.title and not found():
+    if a.audd and not found():
         ask_audd()
     if not notes["route"] and any(r.decision in ("exact", "probable") for r in ranked):
         notes["route"] = "preview only"

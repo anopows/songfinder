@@ -65,7 +65,8 @@ def test_daily_budget_is_atomic_and_survives_reload(client):
 
 def test_rate_limit_cannot_be_reset_with_new_cookie(client):
     verify(client)
-    for _ in range(5):create(client)
+    for _ in range(5):
+        jid=create(client);client.post(f'/api/clips/{jid}/cancel',json={})
     verify(client)
     assert client.post('/api/clips',json={'size':10}).status_code==429
 

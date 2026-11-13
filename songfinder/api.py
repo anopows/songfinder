@@ -40,6 +40,14 @@ async def boundary(request, call_next):
         limit=store.PART_BYTES if request.method=='PUT' else 8192
         if size<0 or size>limit:return JSONResponse({'error':'Request is too large.'},status_code=413)
     response=await call_next(request)
+    # Renew signed visitor verification during activity, without changing ownership.
+    # Expired verification still requires Turnstile; the separate owner cookie survives.
+    value=request.cookies.get('sf_session','')
+    if request.url.path!='/api/session' and read_token(value,'visitor'):
+        if int(value.split(':')[1])-time.time()<1800:
+            identity=owner_identity(request) or hashlib.sha256(value.encode()).hexdigest()
+            set_cookie(response,'visitor')
+            set_cookie(response,'owner',identity,14*86400)
     response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
         'Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Robots-Tag':'index, follow' if request.url.path in ('/','/robots.txt','/sitemap.xml') else 'noindex, nofollow',
         'Permissions-Policy':'camera=(), microphone=(self), geolocation=()',
@@ -188,6 +196,7 @@ async def upload(jid:str,part:int,request:Request):
         path=store.ROOT/'uploads'/jid
         # Only append the next part. Repeating a committed part is safely idempotent.
         duplicate=offset<job['received'];received=0
+        store.update(jid)  # receiving a bounded chunk counts as upload activity
         try:
             with open(path,'r+b' if path.exists() else 'w+b') as f:
                 f.seek(offset)
@@ -214,8 +223,8 @@ async def complete(jid:str,request:Request):
         job=job_or_404(jid)
         if job['owner']!=owner:raise HTTPException(403,'This upload belongs to another session.')
         if job['status']!='uploading':return {'id':jid}
-        if job['received']!=job['size']:raise HTTPException(409,'Upload has not finished.')
-        store.update(jid,status='queued')
+        try:store.enqueue(jid)
+        except ValueError as e:raise HTTPException(409,str(e))
     locks.pop(jid,None)
     return {'id':jid}
 
@@ -234,7 +243,7 @@ async def status(jid:str,request:Request):
     # Reformat stored reports so historical results also get the identity fix.
     report=json.loads(j['report'])
     if report.get('results') and out.get('verdict') in ('exact','probable'):
-        from .web import _summarise
+        from .presentation import _summarise
         out.update(_summarise(report))
     with store.db() as c:out['ahead']=c.execute("SELECT count(*) FROM jobs WHERE status IN ('queued','working') AND created<?",(j['created'],)).fetchone()[0]
     return out

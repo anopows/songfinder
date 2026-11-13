@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id);
 const show=name=>{for(const s of["home","work","res"]){$(s).hidden=s!==name;$(s).style.display=s===name?"flex":"none"}};
 const id=location.pathname.startsWith("/c/")?location.pathname.slice(3):"";
-function fail(text){show("home");$("err").textContent=text;$("err").hidden=false;$("pick").disabled=false;$("up").hidden=true}
+function fail(text){show("home");$("err").textContent=text;$("err").hidden=false;$("pick").disabled=!verified;$("up").hidden=true;$("file").value=""}
 let bootstrap, verified=false, widget, verificationPromise, verificationResolve, verificationReject;
 async function api(path,body,method="POST",renew=true){
  const r=await fetch(path,{method,headers:{"Content-Type":"application/json","X-Songfinder":"1"},body:JSON.stringify(body)});
@@ -36,7 +36,7 @@ function verification(){
  return promise;
 }
 async function start(){
- try{bootstrap=await (await fetch("/api/bootstrap")).json();verified=bootstrap.verified;
+ try{bootstrap=await (await fetch("/api/bootstrap")).json();verified=bootstrap.verified;$("limittext").textContent="Up to "+Math.floor(bootstrap.max_bytes/1024/1024)+" MB";
   if(verified){$("pick").disabled=false;$("verify").hidden=true}
   else verification().catch(()=>{});
   if(id){show("work");poll()}else{show("home");recent()}
@@ -51,7 +51,7 @@ function remember(item){try{let items=JSON.parse(localStorage.getItem("sf_recent
 $("pick").onclick=()=>$("file").click();
 $("file").onchange=async()=>{
  const f=$("file").files[0];if(!f)return;
- if(f.size>500*1024*1024)return fail("The file is too large. The limit is 500 MB.");
+ if(f.size>bootstrap.max_bytes)return fail("The file is too large. The limit is "+Math.floor(bootstrap.max_bytes/1024/1024)+" MB.");
  $("err").hidden=true;$("pick").disabled=true;$("up").hidden=false;
  try{
   if(!verified)await verification();

@@ -1,4 +1,4 @@
-from songfinder.web import _summarise
+from songfinder.presentation import _summarise
 
 
 def test_confirmed_recording_identity_cannot_be_overwritten_by_a_hint():

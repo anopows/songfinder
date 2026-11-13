@@ -76,7 +76,9 @@ def reference_features(c: Candidate, cache: FeatureCache) -> tuple[np.ndarray, b
 def evaluate_candidate(query: Query, c: Candidate, cache: FeatureCache, quick: bool = False) -> Result:
     try:
         feats, cached = reference_features(c, cache)
-        return Result(c, query.evaluate(feats, quick=quick), cached=cached)
+        evaluation=query.evaluate(feats,quick=quick)
+        if evaluation.decision=='exact':cache.protect(c.key)
+        return Result(c,evaluation,cached=cached)
     except Blocked as e:
         return Result(c, error=f"blocked: {e}")
     except NoAudio as e:

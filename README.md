@@ -79,12 +79,13 @@ Recognition adapters and reference providers have their own availability and ter
 The Shazam adapter is unofficial; discovery can fail when services throttle requests.
 
 For the web application and deployment instructions, see [Hosting](docs/hosting.md).
-`python -m songfinder.web` is an earlier private prototype, not the public deployment entry point.
+The public entry points are `songfinder.api` and `songfinder.worker`; presentation helpers are separate from the HTTP boundary.
 
 ## Development
 
 ```sh
 .venv/bin/python -m pytest tests -q
+node --test tests/frontend.test.cjs
 ```
 
 Tests generate synthetic audio and use mocked network boundaries. They do not require

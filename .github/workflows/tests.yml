@@ -19,3 +19,4 @@ jobs:
       - run: uv venv --python 3.12
       - run: uv pip install --python .venv/bin/python -r requirements-web.lock -e . pytest
       - run: .venv/bin/python -m pytest tests -q
+      - run: node --test tests/frontend.test.cjs

@@ -9,6 +9,8 @@ import hashlib
 import json
 import os
 import tempfile
+import time
+from pathlib import Path
 
 import numpy as np
 
@@ -36,6 +38,7 @@ class FeatureCache:
                 meta = json.loads(str(z["meta"]))
                 if meta.get("version") != FEATURE_VERSION:
                     return None
+                if time.time()-os.path.getmtime(path)>3600:os.utime(path,None)
                 return z["f"].astype(np.float32), meta
         except Exception:
             return None                      # unreadable entry: treat as a miss
@@ -55,6 +58,12 @@ class FeatureCache:
                     continue
                 if meta.get("version") == FEATURE_VERSION and meta.get("key"):
                     yield meta
+
+    def protect(self, key):
+        """Pin a seeded or audio-confirmed reference against cache eviction."""
+        if self.root:
+            path=Path(self._path(key))
+            if path.exists():path.with_suffix('.keep').touch(exist_ok=True)
 
     def shortlist(self, feats, limit=12):
         if not self.root:return []

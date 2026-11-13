@@ -2,7 +2,7 @@
 import json, os, sys, time
 from . import store, recognise
 from .service import identify_clip, Options
-from .web import STEPS, _summarise
+from .presentation import STEPS, _summarise
 
 def main(jid):
     job=store.get(jid);deadline=time.monotonic()+320

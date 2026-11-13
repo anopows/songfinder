@@ -20,11 +20,11 @@ performance-level identification or interpret the earlier investigated 40 clips 
 
 ## 1. Preserve the identity of the confirmed recording
 
-The current web formatter can replace a confirmed candidate's artist/title with an
+The former web formatter could replace a confirmed candidate's artist/title with an
 unverified recognizer hint when the song title matches. A constructed report with a
 confirmed Billy May performance and an earlier Charlie Barnet hint reproduces the
 wrong displayed artist, even though the reference link still belongs to the winner.
-This is a result-label bug; the reproduction does not establish that either artist
+This was a result-label bug; the reproduction does not establish that either artist
 was incorrectly matched by the audio engine in that test.
 
 Bind displayed identity to the audio-confirmed candidate. Only adopt recognizer

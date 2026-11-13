@@ -59,13 +59,15 @@ def decode(jid):
         shutil.rmtree(output_dir,ignore_errors=True)
 
 def process(job):
-    jid=job['id'];started=time.monotonic()
+    jid=job['id'];started=time.monotonic();stage='decode'
     try:
         if job['cancel_requested']:raise Cancelled()
-        if job['audio_id']==jid:
+        audio=store.ROOT/'audio'/f"{job['audio_id']}.m4a"
+        if job['audio_created']<time.time()-14*86400:raise ValueError('Retained audio has expired')
+        if not audio.is_file():
+            if job['audio_id']!=jid or not (store.ROOT/'uploads'/jid).is_file():raise ValueError('Audio is unavailable')
             store.event(jid,'Reading the sound from your file');decode(jid)
-        elif job['audio_created']<time.time()-14*86400 or not (store.ROOT/'audio'/f"{job['audio_id']}.m4a").is_file():
-            raise ValueError('Retained audio has expired')
+        stage='search'
         store.event(jid,'Comparing your clip with recordings')
         logpath=store.ROOT/'uploads'/f'{jid}.log'
         try:
@@ -82,27 +84,40 @@ def process(job):
         store.update(jid,result=json.dumps({'verdict':'cancelled','message':'This search was cancelled.'}))
     except TimeoutError:
         result=json.loads(store.get(jid)['result'])
-        if result.get('verdict') not in ('exact','probable'):
+        if stage=='decode':
+            result={'verdict':'error','message':'Reading the sound from this file took too long. Try a shorter video or an audio file.'}
+        elif result.get('verdict') not in ('exact','probable'):
             result={'verdict':'timeout','message':'We reached the search time limit without confirming a match. Try a clearer clip or add the song title.'}
-        store.update(jid,result=json.dumps(result),error='Processing time limit reached')
+        store.update(jid,result=json.dumps(result),error=stage+' time limit reached')
     except Exception as exc:
-        store.update(jid,result=json.dumps({'verdict':'error','message':'We could not read the sound from this file. Try another video or recording.'}),error=type(exc).__name__+': '+str(exc)[:1000])
+        message='We could not read the sound from this file. Try another video or recording.' if stage=='decode' else 'This search could not finish. You can try again using the retained audio.'
+        store.update(jid,result=json.dumps({'verdict':'error','message':message}),error=type(exc).__name__+': '+str(exc)[:1000])
     finally:
         (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
         store.update(jid,status='done',finished=time.time())
+
+def recover():
+    with store.db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        stale=c.execute("SELECT * FROM jobs WHERE status='working'").fetchall()
+        for j in stale:
+            audio=store.ROOT/'audio'/f"{j['audio_id']}.m4a"
+            available=(audio.is_file() or (store.ROOT/'uploads'/j['id']).is_file()) and j['audio_created']>=time.time()-14*86400
+            if available and not j['cancel_requested'] and j['recoveries']<2:
+                c.execute("UPDATE jobs SET status='queued',started=NULL,finished=NULL,recoveries=recoveries+1,updated=? WHERE id=?",(time.time(),j['id']))
+                continue
+            result=json.loads(j['result'])
+            if j['cancel_requested']:result={'verdict':'cancelled','message':'This search was cancelled.'}
+            elif result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. Try again with the retained audio if available.'}
+            c.execute("UPDATE jobs SET status='done',result=?,updated=? WHERE id=?",(json.dumps(result),time.time(),j['id']))
+            (store.ROOT/'uploads'/j['id']).unlink(missing_ok=True)
 
 def main():
     store.init()
     if '--purge' in sys.argv:store.purge();return
     lease=(store.ROOT/'worker.lock').open('w')
     fcntl.flock(lease,fcntl.LOCK_EX|fcntl.LOCK_NB)
-    with store.db() as c:
-        stale=c.execute("SELECT id,result FROM jobs WHERE status='working'").fetchall()
-        for j in stale:
-            result=json.loads(j['result'])
-            if result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. You can retry using the retained audio.'}
-            c.execute("UPDATE jobs SET status='done',result=?,updated=? WHERE id=?",(json.dumps(result),time.time(),j['id']))
-            (store.ROOT/'uploads'/j['id']).unlink(missing_ok=True)
+    recover()
     last_purge=0
     while True:
         heartbeat()
