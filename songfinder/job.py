@@ -8,7 +8,7 @@ def main(jid):
     job=store.get(jid);deadline=time.monotonic()+320
     def gate(service):
         while time.monotonic()<deadline:
-            cap=int(os.environ.get('SONGFINDER_'+service.upper()+'_DAILY','400' if service=='shazam' else '5'))
+            cap=store.budget_cap(service)
             delay=store.budget_delay(service,cap,15 if service=='shazam' else 2)
             if delay<0 or time.monotonic()+delay>deadline:return False
             if delay==0:return True

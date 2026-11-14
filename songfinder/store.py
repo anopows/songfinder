@@ -2,11 +2,16 @@
 from __future__ import annotations
 import contextlib, hashlib, hmac, json, os, secrets, shutil, sqlite3, time
 from pathlib import Path
+from . import kpi
 
 ROOT = Path(os.environ.get('SONGFINDER_DATA', 'web-data-public')).resolve()
 MAX_BYTES = 500 * 1024 * 1024
 PART_BYTES = 8 * 1024 * 1024
 MAX_WAITING = 10
+BUDGET_DEFAULTS = {'shazam': 400, 'audd': 5}
+
+def budget_cap(service):
+    return int(os.environ.get('SONGFINDER_'+service.upper()+'_DAILY', BUDGET_DEFAULTS[service]))
 DISK_FLOOR = 6 * 1024**3
 MAX_UPLOADS_PER_IP = 3
 MAX_UPLOADS = 20
@@ -44,6 +49,7 @@ def init():
           used INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, blocked_until REAL NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         ''')
+        kpi.init(c)
         columns={r[1] for r in c.execute('PRAGMA table_info(jobs)')}
         for name,kind in [('artist',"TEXT NOT NULL DEFAULT ''"),('audio_id',"TEXT NOT NULL DEFAULT ''"),
                           ('audio_created','REAL NOT NULL DEFAULT 0'),('cancel_requested','INTEGER NOT NULL DEFAULT 0'),
@@ -51,6 +57,71 @@ def init():
             if name not in columns:c.execute(f'ALTER TABLE jobs ADD COLUMN {name} {kind}')
         c.execute("UPDATE jobs SET audio_id=id,audio_created=created WHERE audio_id=''")
         c.execute('INSERT OR IGNORE INTO meta VALUES (?,?)', ('ip_salt', secrets.token_hex(32)))
+
+def kpi_count(c, fn, *args, **kwargs):
+    """Roll back failed instrumentation without interrupting the enclosing write."""
+    try:
+        c.execute('SAVEPOINT kpi_count')
+        fn(c, *args, **kwargs)
+        c.execute('RELEASE kpi_count')
+    except Exception:
+        try:
+            c.execute('ROLLBACK TO kpi_count'); c.execute('RELEASE kpi_count')
+        except Exception: pass
+
+def best_count(fn, *args):
+    try:
+        con=sqlite3.connect(ROOT/'jobs.sqlite3', timeout=0.05)
+        try:
+            fn(con, *args); con.commit()
+        finally: con.close()
+    except Exception: pass
+
+def best_seen(kind, ip):
+    try:
+        con=sqlite3.connect(ROOT/'jobs.sqlite3', timeout=0.05)
+        try:
+            secret=con.execute("SELECT value FROM meta WHERE key='ip_salt'").fetchone()[0]
+            key=hmac.new(secret.encode(),ip.encode(),hashlib.sha256).hexdigest()
+            kpi.seen(con,kind,key,secret); con.commit()
+        finally: con.close()
+    except Exception: pass
+
+def finish(c, jid, *, result=None, outcome=None, now=None, timed=True):
+    now=time.time() if now is None else now
+    row=c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone()
+    if not row or row['status']=='done': return False
+    stored=result if result is not None else row['result']
+    if not isinstance(stored,str): stored=json.dumps(stored)
+    changed=c.execute("UPDATE jobs SET status='done',finished=?,updated=?,result=? WHERE id=? AND status!='done'",(now,now,stored,jid)).rowcount
+    if not changed: return False
+    try: verdict=json.loads(stored).get('verdict','other')
+    except (ValueError, AttributeError): verdict='other'
+    verdict=outcome or verdict
+    if not isinstance(verdict,str) or verdict.lower() not in {'exact','probable','related','unavailable','unconfirmed','none','timeout','error','cancelled','upload_expired'}: verdict='other'
+    else: verdict=verdict.lower()
+    def record(con):
+        kpi.bump(con,'job.done.'+verdict,now=now)
+        if timed and row['started'] is not None:
+            kpi.observe(con,'queue_s',max(0,row['started']-row['created']),now=now)
+            kpi.observe(con,'process_s',max(0,now-row['started']),now=now)
+        try: report=json.loads(row['report'])
+        except (ValueError, TypeError): report={}
+        if any(isinstance(issue,dict) and issue.get('kind') for issue in report.get('provider_issues',[])):
+            kpi.bump(con,'job.source_issue',now=now)
+    kpi_count(c,record)
+    return True
+
+def set_feedback(jid, answer):
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row=c.execute('SELECT feedback FROM jobs WHERE id=?',(jid,)).fetchone()
+        if not row or row['feedback']==answer:return
+        c.execute('UPDATE jobs SET feedback=?,updated=? WHERE id=?',(answer,time.time(),jid))
+        def record(con):
+            kpi.bump(con,'feedback.'+answer)
+            if row['feedback'] in ('yes','no'): kpi.bump(con,'feedback.'+row['feedback'],-1)
+        kpi_count(c,record)
 
 def get(jid):
     with db() as c:
@@ -93,8 +164,7 @@ def expire_uploads(c,now):
                     (now-EMPTY_UPLOAD_SECONDS,now-IDLE_UPLOAD_SECONDS)).fetchall()
     for row in stale:
         (ROOT/'uploads'/row['id']).unlink(missing_ok=True)
-        c.execute("UPDATE jobs SET status='done',result=?,updated=?,finished=? WHERE id=?",
-                  (json.dumps({'verdict':'error','message':'The upload stopped for too long. Please choose the file again.'}),now,now,row['id']))
+        finish(c,row['id'],result={'verdict':'error','message':'The upload stopped for too long. Please choose the file again.'},outcome='upload_expired',now=now)
 
 def enqueue(jid):
     with db() as c:
@@ -104,6 +174,7 @@ def enqueue(jid):
         if job['received']!=job['size']:raise ValueError('Upload has not finished.')
         # Admission reserves completion too: never discard bytes already uploaded.
         c.execute("UPDATE jobs SET status='queued',updated=? WHERE id=?",(time.time(),jid))
+        kpi_count(c,kpi.bump,'clip.queued')
 
 def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
     now=time.time()
@@ -140,6 +211,8 @@ def reserve_job(owner, iphash, size, name, hint, artist="", retry_from=None):
         c.execute('UPDATE jobs SET artist=?,audio_id=?,audio_created=?,status=?,upload_ip=? WHERE id=?',
                   (artist[:120],original['audio_id'] if original else jid,
                    original['audio_created'] if original else now,'queued' if original else 'uploading',iphash,jid))
+        kpi_count(c,kpi.bump,'retry.reserved' if retry_from else 'clip.reserved')
+        if not retry_from: kpi_count(c,kpi.bump,'clip.bytes',size)
         c.executemany('INSERT INTO limits VALUES (?,?)',[(limit_key,now),('global',now)])
     return jid
 
@@ -155,6 +228,7 @@ def budget_delay(service, cap, gap):
         wait=max(r['next_at'],r['blocked_until'])-now
         if wait>0:return wait
         c.execute('UPDATE service_budget SET day=?,used=?,next_at=? WHERE service=?',(day,used+1,now+gap,service))
+        if service in ('shazam','audd'): kpi_count(c,kpi.bump,'budget.'+service)
         return 0
 
 def block(service, seconds):
@@ -163,6 +237,8 @@ def block(service, seconds):
 def purge(now=None):
     now=now or time.time()
     with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        kpi_count(c,kpi.prune,now=now)
         expire_uploads(c,now)
         rows=c.execute('SELECT id,created,status,updated,audio_id,audio_created FROM jobs').fetchall()
         for r in rows:

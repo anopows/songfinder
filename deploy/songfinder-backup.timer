@@ -1,0 +1,9 @@
+[Unit]
+Description=Scheduled songfinder backup
+
+[Timer]
+OnCalendar=*-*-* 03:50:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

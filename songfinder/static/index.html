@@ -71,6 +71,7 @@ footer{margin-top:auto;padding-top:24px;text-align:center}#recentlinks a{padding
 <div><label for="artist">Band or artist</label><input id="artist" type="text" autocomplete="off" maxlength="120"></div>
 <p class="small">A title or performer makes rare recordings much easier to find.</p>
 <button id="find" class="btn brass" type="submit">Find the song</button>
+<p data-legal hidden class="small">By uploading you agree to the <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
 <p id="uploaderr" class="msg" role="alert" hidden></p>
 <div id="up" hidden><p class="small" id="upt">Uploading…</p><progress id="bar" max="1" value="0"></progress></div>
 </form>
@@ -103,6 +104,6 @@ footer{margin-top:auto;padding-top:24px;text-align:center}#recentlinks a{padding
 <div class="grid"><button class="btn" id="copy" type="button">Copy link</button>
 <a class="btn" href="/">Find another song</a></div>
 </section>
-<footer class="small"><a href="https://github.com/anopows/songfinder#readme">About</a> · <a href="https://github.com/anopows/songfinder">Source code</a> · <a href="https://github.com/anopows/songfinder/issues/new">Report a problem</a></footer>
+<footer class="small"><!-- removal-link --><span data-legal hidden><a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/legal">Legal notice</a> · </span><a href="https://github.com/anopows/songfinder#readme">About</a> · <a href="https://github.com/anopows/songfinder">Source code</a> · <a href="https://github.com/anopows/songfinder/issues/new">Report a problem</a></footer>
 </main>
 <script src="/app.js" defer></script></body></html>
