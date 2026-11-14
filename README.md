@@ -95,3 +95,7 @@ Report reproducible problems in [GitHub Issues](https://github.com/anopows/songf
 please avoid posting private recordings, result URLs, credentials or personal information.
 
 Maintained by [anopows](https://github.com/anopows).
+
+## Public-launch foundations
+
+Version 0.3 adds externally configured Terms, Privacy and Legal Notice pages, result-removal contact links, encrypted off-host database backup jobs and public health probes. Provider daily caps of zero disable recognition calls without waiting. See [hosting](docs/hosting.md) for configuration and release gates. These changes alone do not establish legal approval, calibrated moderation or a completed production rollout.

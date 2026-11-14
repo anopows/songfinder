@@ -7,7 +7,8 @@ import httpx
 from argon2 import PasswordHasher
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from . import store
+from . import store, kpi
+from .legal import LegalPages
 
 ORIGIN=os.environ.get('SONGFINDER_ORIGIN','http://127.0.0.1:8792').rstrip('/')
 SITE_KEY=os.environ.get('SONGFINDER_TURNSTILE_SITE_KEY','')
@@ -16,6 +17,8 @@ SESSION_SECRET=os.environ.get('SONGFINDER_SESSION_SECRET','')
 ADMIN_HASH=os.environ.get('SONGFINDER_ADMIN_HASH','')
 DEV=os.environ.get('SONGFINDER_DEVELOPMENT')=='1' and ORIGIN.startswith('http://127.0.0.1:')
 STATIC=Path(__file__).parent/'static'
+LEGAL=LegalPages(os.environ.get('SONGFINDER_LEGAL_DIR','/etc/songfinder/legal'))
+ABUSE_EMAIL=os.environ.get('SONGFINDER_ABUSE_EMAIL','')
 locks={}
 UPLOAD_STALL_SECONDS=90
 
@@ -60,7 +63,11 @@ async def boundary(request, call_next):
         except ValueError:size=-1
         limit=store.PART_BYTES if request.method=='PUT' else 8192
         if size<0 or size>limit:return JSONResponse({'error':'Request is too large.'},status_code=413)
-    response=await call_next(request)
+    try: response=await call_next(request)
+    except Exception:
+        store.best_count(kpi.bump,'http.5xx'); raise
+    if response.status_code==429: store.best_count(kpi.bump,'http.429')
+    elif response.status_code>=500: store.best_count(kpi.bump,'http.5xx')
     # Renew signed visitor verification during activity, without changing ownership.
     # Expired verification still requires Turnstile; the separate owner cookie survives.
     value=request.cookies.get('sf_session','')
@@ -70,7 +77,7 @@ async def boundary(request, call_next):
             set_cookie(response,'visitor')
             set_cookie(response,'owner',identity,14*86400)
     response.headers.update({'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
-        'Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Robots-Tag':'index, follow' if request.url.path in ('/','/robots.txt','/sitemap.xml') else 'noindex, nofollow',
+        'Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','X-Robots-Tag':'index, follow' if request.url.path in ('/','/robots.txt','/sitemap.xml','/terms','/privacy','/legal') else 'noindex, nofollow',
         'Permissions-Policy':'camera=(), microphone=(self), geolocation=()',
         'Content-Security-Policy':"default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-src https://challenges.cloudflare.com; connect-src 'self' https://challenges.cloudflare.com; img-src 'self' data:; media-src 'self' blob:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"})
     return response
@@ -139,7 +146,18 @@ def job_or_404(jid):
 @app.get('/c/{jid}')
 @app.get('/example')
 async def page(request:Request):
+    if request.method=='GET':
+        metric='page.home' if request.url.path=='/' else 'page.example' if request.url.path=='/example' else 'page.result'
+        store.best_count(kpi.bump,metric)
+        if request.url.path=='/':
+            store.best_seen('uniq.visitors',ip(request))
     content=(STATIC/'index.html').read_text()
+    if LEGAL.ready:
+        content=content.replace('data-legal hidden', 'data-legal')
+    if request.url.path.startswith('/c/') and ABUSE_EMAIL and '@' in ABUSE_EMAIL and not any(c in ABUSE_EMAIL for c in '\r\n?&'):
+        from urllib.parse import quote
+        link='mailto:'+quote(ABUSE_EMAIL, safe='@')+'?subject='+quote('Remove result '+request.path_params['jid'])
+        content=content.replace('<!-- removal-link -->', '<a href="'+html.escape(link, quote=True)+'">Request removal</a> · ')
     if request.url.path=='/':
         origin=html.escape(ORIGIN,quote=True)
         content=content.replace('<meta name="robots" content="noindex">',
@@ -157,11 +175,21 @@ async def page(request:Request):
 
 @app.get('/robots.txt')
 async def robots():
-    return HTMLResponse(f'User-agent: *\nAllow: /$\nDisallow: /c/\nDisallow: /api/\nDisallow: /admin\nSitemap: {ORIGIN}/sitemap.xml\n',media_type='text/plain')
+    return HTMLResponse(f'User-agent: *\nAllow: /$\nAllow: /terms$\nAllow: /privacy$\nAllow: /legal$\nDisallow: /c/\nDisallow: /api/\nDisallow: /admin\nSitemap: {ORIGIN}/sitemap.xml\n',media_type='text/plain')
 
 @app.get('/sitemap.xml')
 async def sitemap():
-    return HTMLResponse('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>'+html.escape(ORIGIN)+'/</loc></url></urlset>',media_type='application/xml')
+    paths=('/', '/terms', '/privacy', '/legal') if LEGAL.ready else ('/',)
+    urls=''.join('<url><loc>'+html.escape(ORIGIN+path)+'</loc></url>' for path in paths)
+    return HTMLResponse('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'+urls+'</urlset>',media_type='application/xml')
+
+@app.get('/terms')
+@app.get('/privacy')
+@app.get('/legal')
+async def legal_page(request:Request):
+    content=LEGAL.get(request.url.path[1:])
+    if content is None:raise HTTPException(404,'Legal pages are not available yet.')
+    return HTMLResponse(content)
 
 @app.get('/api/example')
 async def example():return JSONResponse(json.loads((STATIC/'example.json').read_text()))
@@ -188,13 +216,18 @@ async def health():
 async def bootstrap(request:Request):
     try:session(request);valid=True
     except HTTPException:valid=False
-    return {'site_key':SITE_KEY,'max_bytes':store.MAX_BYTES,'part_bytes':store.PART_BYTES,'verified':valid}
+    return {'site_key':SITE_KEY,'max_bytes':store.MAX_BYTES,'part_bytes':store.PART_BYTES,'verified':valid,'legal_ready':LEGAL.ready,'abuse_email':ABUSE_EMAIL}
 
 @app.post('/api/session')
 async def make_session(request:Request):
     if not store.allow('session:'+store.ip_key(ip(request)),20,3600):raise HTTPException(429,'Please try again later.')
     body=await small_json(request)
-    await verify(request,body.get('token'))
+    try: await verify(request,body.get('token'))
+    except HTTPException as exc:
+        if exc.status_code==400: store.best_count(kpi.bump,'session.failed')
+        raise
+    store.best_count(kpi.bump,'session.verified')
+    store.best_seen('uniq.verified',ip(request))
     identity=owner_identity(request)
     if not identity:
         try:identity=session(request)  # preserve an upload started before this release
@@ -211,7 +244,8 @@ async def create(request:Request):
     name=body.get('name','');hint=body.get('title','');artist=body.get('artist','')
     if not isinstance(name,str) or not isinstance(hint,str) or not isinstance(artist,str):raise HTTPException(400,'Invalid clip details.')
     try:jid=store.reserve_job(owner,store.ip_key(ip(request)),size,name,hint.strip(),artist.strip())
-    except ValueError as e:raise HTTPException(429,str(e))
+    except ValueError as e:
+        store.best_count(kpi.bump,'clip.rejected'); raise HTTPException(429,str(e))
     return {'id':jid,'part_bytes':store.PART_BYTES}
 
 @app.put('/api/clips/{jid}/parts/{part}')
@@ -307,8 +341,8 @@ async def cancel(jid:str,request:Request):
             c.execute('BEGIN IMMEDIATE')
             j=dict(c.execute('SELECT * FROM jobs WHERE id=?',(jid,)).fetchone())
             if j['status'] in ('uploading','queued'):
-                c.execute("UPDATE jobs SET status='done',cancel_requested=1,result=?,updated=?,finished=? WHERE id=?",
-                          (json.dumps({'verdict':'cancelled','message':'This search was cancelled.'}),time.time(),time.time(),jid))
+                c.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?',(jid,))
+                store.finish(c,jid,result={'verdict':'cancelled','message':'This search was cancelled.'})
                 (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
             elif j['status']=='working':c.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?',(jid,))
     return {'ok':True}
@@ -318,7 +352,7 @@ async def feedback(jid:str,request:Request):
     session(request);j=job_or_404(jid);body=await small_json(request)
     if j['status']!='done' or body.get('answer') not in ('yes','no'):raise HTTPException(400,'Invalid feedback.')
     if not store.allow('feedback:'+store.ip_key(ip(request)),30,3600):raise HTTPException(429,'Please try later.')
-    store.update(jid,feedback=body['answer']);return {'ok':True}
+    store.set_feedback(jid,body['answer']);return {'ok':True}
 
 @app.get('/admin')
 async def admin_page():return FileResponse(STATIC/'admin.html',media_type='text/html')

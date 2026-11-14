@@ -1,7 +1,7 @@
 """One durable queue worker, networkless upload decode and bounded search children."""
 import fcntl, json, os, shutil, signal, subprocess, sys, time
 from pathlib import Path
-from . import store
+from . import store, kpi
 
 def heartbeat():
     with store.db() as c:c.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('worker_heartbeat',str(time.time())))
@@ -94,7 +94,7 @@ def process(job):
         store.update(jid,result=json.dumps({'verdict':'error','error_kind':'file' if stage=='decode' else 'search','message':message}),error=type(exc).__name__+': '+str(exc)[:1000])
     finally:
         (store.ROOT/'uploads'/jid).unlink(missing_ok=True)
-        store.update(jid,status='done',finished=time.time())
+        with store.db() as c: store.finish(c,jid)
 
 def recover():
     with store.db() as c:
@@ -105,11 +105,12 @@ def recover():
             available=(audio.is_file() or (store.ROOT/'uploads'/j['id']).is_file()) and j['audio_created']>=time.time()-14*86400
             if available and not j['cancel_requested'] and j['recoveries']<2:
                 c.execute("UPDATE jobs SET status='queued',started=NULL,finished=NULL,recoveries=recoveries+1,updated=? WHERE id=?",(time.time(),j['id']))
+                store.kpi_count(c,kpi.bump,'job.recovered')
                 continue
             result=json.loads(j['result'])
             if j['cancel_requested']:result={'verdict':'cancelled','message':'This search was cancelled.'}
             elif result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. Try again with the retained audio if available.'}
-            c.execute("UPDATE jobs SET status='done',result=?,updated=? WHERE id=?",(json.dumps(result),time.time(),j['id']))
+            store.finish(c,j['id'],result=result,timed=False)
             (store.ROOT/'uploads'/j['id']).unlink(missing_ok=True)
 
 def main():

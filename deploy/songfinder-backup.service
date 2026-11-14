@@ -1,0 +1,20 @@
+[Unit]
+Description=songfinder backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=songfinder
+Group=songfinder
+WorkingDirectory=/opt/songfinder
+EnvironmentFile=/etc/songfinder.env
+EnvironmentFile=/etc/songfinder-backup.env
+ExecStart=/opt/songfinder/deploy/backup.sh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/songfinder
+TimeoutStartSec=900

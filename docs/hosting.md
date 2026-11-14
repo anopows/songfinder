@@ -129,3 +129,16 @@ Restart the API and worker together after upgrading. The new database columns ar
 added automatically; existing results remain readable. Runtime secrets do not change.
 
 The permanent `/example` result contains only metadata from a public sample. It is a frozen application fixture, so normal visitor-result retention does not remove it. It has no retained audio or feedback/retry controls.
+
+## Public-launch foundations (0.3)
+
+Legal pages are served from SONGFINDER_LEGAL_DIR (default /etc/songfinder/legal). All three complete HTML files (terms.html, privacy.html, legal.html) must exist without template tokens; legal.html must include id="report". Templates live in deploy/legal-templates and require final operator/legal input. Readiness is cached for 60 seconds. Missing final content returns 404 and hides legal links/consent copy while preserving the existing service. SONGFINDER_ABUSE_EMAIL supplies the result-page Request removal mailto link. Read the mailbox daily and handle removal requests within 72 hours.
+
+Recognizer kill switches: set SONGFINDER_SHAZAM_DAILY=0 and/or SONGFINDER_AUDD_DAILY=0, then restart only the Songfinder worker after reviewing current jobs. Zero caps refuse provider calls without waiting for the rate gap. This service remains free while the unofficial Shazam client is used; provider terms/access have not been legally approved by this code change.
+
+Install age/rclone, deploy/backup.sh, deploy/healthcheck.sh and the four backup/health service/timer files. The backup runs at 03:50; health runs every five minutes. /etc/songfinder-backup.env contains AGE_RECIPIENT and HC_BACKUP_URL; /etc/songfinder-health.env contains HC_HEALTH_URL. /etc/songfinder-backup.conf defines rclone remote backups, scoped to the site-backups bucket and songfinder/ prefix. Files are mode 0600 owned by songfinder. Set the bucket to delete backup objects after 30 days. A separate off-host age private key is required; never store it on the service host or in git. Run a manual backup and off-host decrypt/restore drill before enabling timers. Models, uploads and audio are not included in the database backup. Health probes public HTTPS plus the 10 GB disk floor.
+
+Implementation and automated tests are local. GitHub publication was blocked by automatic approval review; no new production release, provider change, backup upload or external notification has occurred. Final legal text, SMTP/OAuth (five·six), host capacity, backup recovery and monitoring inputs remain release gates. See five·six deploy/PUBLIC_LAUNCH.md for the coordinated rollout. Use the reviewed public export.
+
+
+Local verification on 14 November 2026: 75 Python tests and 8 Node tests passed in this public checkout and the canonical private source. The maintained application files match byte for byte. The new operational units are prepared; production installation, final operator legal documents, encrypted backup restore and external alert drills remain release gates. No private Git history is included in this export.
