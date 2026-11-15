@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 
 from .audio import USER_AGENT
+from . import budget
 
 # Minimum seconds between two requests to the same host.
 MIN_INTERVAL = {"bandcamp.com": 1.0, "bcbits.com": 0.5, "archive.org": 0.5, "dzcdn.net": 1.0}
@@ -43,7 +44,7 @@ def _wait_for_slot(url: str) -> None:
         slot = max(now, _next_slot.get(key, 0.0))
         _next_slot[key] = slot + gap
     if slot > now:
-        time.sleep(slot - now)
+        budget.sleep(slot - now)
 
 
 def fetch(url: str, data: bytes | None = None, headers: dict | None = None,
@@ -56,18 +57,20 @@ def fetch(url: str, data: bytes | None = None, headers: dict | None = None,
         _wait_for_slot(url)
         try:
             req = urllib.request.Request(url, data=data, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=budget.timeout(timeout)) as resp:
                 body = resp.read()
         except urllib.error.HTTPError as e:
             if e.code in (403, 401):
                 raise Blocked(f"{host_key(url)} refused the request (HTTP {e.code})") from e
             if e.code in (429, 500, 502, 503, 504) and attempt < retries:
-                time.sleep(3.0 * (attempt + 1) ** 2)
+                budget.sleep(3.0 * (attempt + 1) ** 2)
                 continue
+            raise
+        except budget.Expired:
             raise
         except (urllib.error.URLError, TimeoutError):
             if attempt < retries:
-                time.sleep(2.0 * (attempt + 1))
+                budget.sleep(2.0 * (attempt + 1))
                 continue
             raise
         if b"<title>Client Challenge" in body[:4000]:

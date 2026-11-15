@@ -31,7 +31,7 @@ def test_cli_fallback_calls_real_audd_with_deadline(audd_setup, monkeypatch):
     with patch('urllib.request.urlopen', response):
         _, _, notes, _ = cli.run_identify(options, 'sample.wav', cache, [],
                                           log=lambda s: None, remaining=lambda: 12)
-    assert seen == [12]
+    assert len(seen) == 1 and 11 < seen[0] <= 12
     assert notes['audd_calls'] == 1
     assert notes['provider_issues'] == []
 

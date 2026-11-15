@@ -1,19 +1,25 @@
 """One bounded search process. Parent kills its entire process group at deadline."""
 import json, os, sys, time
-from . import store, recognise
+from . import store, recognise, budget
 from .service import identify_clip, Options
 from .presentation import STEPS, _summarise
 
+def wait_for_recognition_slot(service, deadline):
+    # Cooldowns belong to later jobs; do not spend this search waiting them out.
+    while time.monotonic() < deadline:
+        budget.check()
+        delay = store.budget_delay(service, store.budget_cap(service), 15 if service == 'shazam' else 2)
+        if delay < 0 or delay > 15 or time.monotonic()+delay > deadline:
+            return False
+        if delay == 0:
+            return True
+        budget.sleep(min(delay, 1))
+    return False
+
+
 def main(jid):
     job=store.get(jid);deadline=time.monotonic()+320
-    def gate(service):
-        while time.monotonic()<deadline:
-            cap=store.budget_cap(service)
-            delay=store.budget_delay(service,cap,15 if service=='shazam' else 2)
-            if delay<0 or time.monotonic()+delay>deadline:return False
-            if delay==0:return True
-            time.sleep(min(delay,1))
-        return False
+    gate = lambda service: wait_for_recognition_slot(service, deadline)
     recognise.REQUEST_GATE=gate;recognise.REQUEST_BLOCK=store.block
     def event(e):
         line=e.get('detail','')

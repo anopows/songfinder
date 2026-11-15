@@ -68,7 +68,7 @@ def test_title_miss_falls_back_to_recognition_in_order(monkeypatch):
     options=SimpleNamespace(title='mistpyed title',artist=None,urls=[],max_candidates=80,exhaustive=False,workers=2,
                             shazam=True,shazam_calls=8,index=True,audd=True,audd_calls=2)
     cli.run_identify(options,'public.wav',cache,['bandcamp'],log=lambda s:None)
-    assert stages[0]=='title' and stages[1:]==['recognise','recognise','fallback']
+    assert stages[0]=='title' and stages[1:]==['recognise','fallback','recognise']
 
 def test_worker_restart_resumes_retained_audio_without_decoding(client,monkeypatch):
     verify(client);jid=create(client);store.update(jid,status='working')

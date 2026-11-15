@@ -14,6 +14,7 @@ import subprocess
 import wave
 from dataclasses import dataclass
 from typing import Callable
+from . import budget
 
 SNIPPET_S = 14.0
 # Clip speeds to undo, most likely first. Shazam tolerates a few percent by itself.
@@ -108,7 +109,7 @@ def _variant(clip: str, start: float, mode: str, rate: float, seconds: float = S
     cmd = ["ffmpeg", "-v", "error", "-nostdin", "-ss", f"{start:.2f}", "-t", f"{seconds * f:.2f}",
            "-i", clip, "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "44100", "-af", af,
            "-f", "s16le", "pipe:1"]
-    pcm = subprocess.run(cmd, capture_output=True, timeout=60).stdout
+    pcm = subprocess.run(cmd, capture_output=True, timeout=budget.timeout(60)).stdout
     buf = io.BytesIO()                      # a piped WAV has no length header; build a proper one
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
@@ -154,7 +155,7 @@ def _parse(answer: dict) -> dict | None:
 
 
 async def _run(clip: str, duration: float, rates: list[float], max_calls: int, pause: float,
-               log: Callable[[str], None], patience: int = len(THROTTLE_WAITS_S), on_issue=None, remaining=None) -> list[Hit]:
+               log: Callable[[str], None], patience: int = len(THROTTLE_WAITS_S), on_issue=None, remaining=None, on_attempt=None) -> list[Hit]:
     from aiohttp_retry import ExponentialRetry
     from shazamio import HTTPClient, Shazam
     from shazamio.exceptions import BadResponseStatus
@@ -175,94 +176,106 @@ async def _run(clip: str, duration: float, rates: list[float], max_calls: int, p
             plan += [(mode, rate, starts[0]) for mode in ("stretch", "resample")]
     hits: dict[tuple[str, str], Hit] = {}
     calls = after_first_hit = 0
-    for mode, rate, start in plan:
-        if calls >= max_calls or after_first_hit >= 4:
-            break                           # the matcher verifies; no need to keep asking
-        after_first_hit += bool(hits)
-        data = _variant(clip, start, mode, rate)
-        if len(data) < 50000:
-            continue
-        answer, gave_up = cached_answer("shazam", data), False
-        while answer is None:               # retry this same snippet after a refusal
-            if calls >= max_calls:
-                gave_up = True
-                break
-            if REQUEST_GATE and not await asyncio.to_thread(REQUEST_GATE, "shazam"):
-                if on_issue:on_issue("shazam","budget")
-                log("  Recognition budget reached; continuing with other sources")
-                gave_up = True
-                break
-            global _last_request
-            wait = _last_request + MIN_GAP_S - time.monotonic()
-            if wait > 0:
-                if remaining and wait>=remaining():
-                    if on_issue:on_issue('shazam','budget')
-                    gave_up=True;break
-                await asyncio.sleep(wait)
-            _last_request = time.monotonic()
-            calls += 1
-            try:
-                answer = await asyncio.wait_for(shazam.recognize(data), min(60,max(.01,remaining())) if remaining else 60)
-                store_answer("shazam", data, answer)
-                break
-            except BadResponseStatus as e:  # almost always HTTP 429: too many requests
-                if on_issue:on_issue('shazam','throttled')
-                if REQUEST_BLOCK:
-                    REQUEST_BLOCK("shazam", 120 if throttled == 0 else 300)
-                if throttled >= patience and patience < len(THROTTLE_WAITS_S):
-                    log("  Shazam is throttling; leaving it for a later stage")
-                    gave_up = True
-                    break
-                if throttled >= len(THROTTLE_WAITS_S):
-                    global _blocked_until
-                    _blocked_until = time.monotonic() + COOLDOWN_S
-                    log(f"  Shazam keeps refusing; not asking it again for {COOLDOWN_S / 60:.0f} minutes")
-                    gave_up = True
-                    break
-                if remaining and THROTTLE_WAITS_S[throttled]>=remaining():
-                    log('  Throttle wait exceeds the remaining search budget; moving on')
-                    gave_up=True;break
-                log(f"  Shazam is throttling; waiting {THROTTLE_WAITS_S[throttled]:.0f} s")
-                await asyncio.sleep(THROTTLE_WAITS_S[throttled])
-                throttled += 1
-            except Exception as e:          # network trouble: stop asking
-                if on_issue:on_issue('shazam','unavailable')
-                log(f"  Shazam request failed ({type(e).__name__}: {e}); stopping")
-                gave_up = True
-                break
-        if gave_up:
-            break
-        got = _parse(answer)
-        if got:
-            title, artist = got["title"], got["artist"]
-            key = (title.lower(), artist.lower())
-            if key in hits:
-                hits[key].hits += 1
-            else:
-                hits[key] = Hit(title, artist, got["url"], got["preview"], mode, rate, start,
-                                isrc=got["isrc"], links=got["links"])
-                skew = ""
-                try:                        # Shazam reports how far off speed the match was
-                    m = answer["matches"][0]
-                    skew = f", skew time {m['timeskew'] * 100:+.1f}% freq {m['frequencyskew'] * 100:+.1f}%"
-                except (KeyError, IndexError, TypeError):
-                    pass
-                log(f"  Shazam: \"{title}\" by {artist}  "
-                    f"(clip at {start:.0f} s, corrected for {rate * 100:.0f}% speed by {mode}{skew})")
-            if hits[key].hits >= 2 or rate == 1.0:
-                break                       # confirmed twice, or matched unmodified
     try:
-        await shazam.close()
-        await shazam.http_client.close()    # injected clients are not closed by the library
-    except Exception:
-        pass
+        for mode, rate, start in plan:
+            budget.check()
+            if calls >= max_calls or after_first_hit >= 4:
+                break                           # the matcher verifies; no need to keep asking
+            after_first_hit += bool(hits)
+            data = _variant(clip, start, mode, rate)
+            if len(data) < 50000:
+                continue
+            answer, gave_up = cached_answer("shazam", data), False
+            if answer is not None and on_attempt:on_attempt("cache_hits")
+            while answer is None:               # retry this same snippet after a refusal
+                if calls >= max_calls:
+                    gave_up = True
+                    break
+                if REQUEST_GATE and not await asyncio.to_thread(REQUEST_GATE, "shazam"):
+                    if on_issue:on_issue("shazam","budget")
+                    log("  Recognition budget reached; continuing with other sources")
+                    gave_up = True
+                    break
+                global _last_request
+                wait = _last_request + MIN_GAP_S - time.monotonic()
+                if wait > 0:
+                    if remaining and wait>=remaining():
+                        if on_issue:on_issue('shazam','budget')
+                        gave_up=True;break
+                    await asyncio.sleep(wait)
+                _last_request = time.monotonic()
+                calls += 1
+                if on_attempt:on_attempt("calls")
+                try:
+                    answer = await asyncio.wait_for(shazam.recognize(data), min(60,max(.01,remaining())) if remaining else 60)
+                    if on_attempt:on_attempt("responses")
+                    store_answer("shazam", data, answer)
+                    break
+                except BadResponseStatus as e:  # almost always HTTP 429: too many requests
+                    if on_issue:on_issue('shazam','throttled')
+                    if REQUEST_BLOCK:
+                        REQUEST_BLOCK("shazam", 120 if throttled == 0 else 300)
+                    if throttled >= patience and patience < len(THROTTLE_WAITS_S):
+                        log("  Shazam is throttling; leaving it for a later stage")
+                        gave_up = True
+                        break
+                    if throttled >= len(THROTTLE_WAITS_S):
+                        global _blocked_until
+                        _blocked_until = time.monotonic() + COOLDOWN_S
+                        log(f"  Shazam keeps refusing; not asking it again for {COOLDOWN_S / 60:.0f} minutes")
+                        gave_up = True
+                        break
+                    if remaining and THROTTLE_WAITS_S[throttled]>=remaining():
+                        log('  Throttle wait exceeds the remaining search budget; moving on')
+                        gave_up=True;break
+                    log(f"  Shazam is throttling; waiting {THROTTLE_WAITS_S[throttled]:.0f} s")
+                    await asyncio.sleep(THROTTLE_WAITS_S[throttled])
+                    throttled += 1
+                except budget.Expired:
+                    raise
+                except Exception as e:          # network trouble: stop asking
+                    if on_issue:on_issue('shazam','unavailable')
+                    log(f"  Shazam request failed ({type(e).__name__}: {e}); stopping")
+                    gave_up = True
+                    break
+            if gave_up:
+                break
+            got = _parse(answer)
+            if got:
+                title, artist = got["title"], got["artist"]
+                key = (title.lower(), artist.lower())
+                if key in hits:
+                    hits[key].hits += 1
+                else:
+                    hits[key] = Hit(title, artist, got["url"], got["preview"], mode, rate, start,
+                                    isrc=got["isrc"], links=got["links"])
+                    skew = ""
+                    try:                        # Shazam reports how far off speed the match was
+                        m = answer["matches"][0]
+                        skew = f", skew time {m['timeskew'] * 100:+.1f}% freq {m['frequencyskew'] * 100:+.1f}%"
+                    except (KeyError, IndexError, TypeError):
+                        pass
+                    log(f"  Shazam: \"{title}\" by {artist}  "
+                        f"(clip at {start:.0f} s, corrected for {rate * 100:.0f}% speed by {mode}{skew})")
+                if hits[key].hits >= 2 or rate == 1.0:
+                    break                       # confirmed twice, or matched unmodified
+    finally:
+        try:
+            await shazam.close()
+            await shazam.http_client.close()
+        except Exception:
+            pass
     log(f"  {calls} fingerprint(s) sent, {len(hits)} distinct answer(s)")
     return sorted(hits.values(), key=lambda h: -h.hits), calls
 
 
+def time_remaining(remaining=None):
+    return budget.timeout(remaining() if remaining else 60)
+
+
 def recognise(clip: str, duration: float, rates: list[float] | None = None, max_calls: int = 40,
               pause: float = 2.5, patience: int = len(THROTTLE_WAITS_S),
-              log: Callable[[str], None] = lambda s: None, on_issue=None, remaining=None) -> tuple[list[Hit], int]:
+              log: Callable[[str], None] = lambda s: None, on_issue=None, remaining=None, on_attempt=None) -> tuple[list[Hit], int]:
     """Ask Shazam about the clip, assuming each of `rates` in turn (default: all of RATES).
 
     Returns the distinct answers, most repeated first, and how many fingerprints were sent.
@@ -274,7 +287,7 @@ def recognise(clip: str, duration: float, rates: list[float] | None = None, max_
         if on_issue:on_issue('shazam','throttled')
         log(f"  Shazam refused recently; skipping it for another {left / 60:.0f} minute(s)")
         return [], 0
-    return asyncio.run(_run(clip, duration, list(rates or RATES), max_calls, pause, log, patience,on_issue,remaining))
+    return asyncio.run(_run(clip, duration, list(rates or RATES), max_calls, pause, log, patience,on_issue,remaining,on_attempt))
 
 
 # ------------------------------------------------------------------------- AudD
@@ -308,7 +321,7 @@ def _audd_hit(result: dict, mode: str, rate: float, start: float) -> Hit | None:
 
 def recognise_audd(clip: str, duration: float, rates: list[float] | None = None, max_calls: int = 3,
                    token: str | None = None, log: Callable[[str], None] = lambda s: None,
-                   on_issue=None, remaining=None
+                   on_issue=None, remaining=None, on_attempt=None
                    ) -> tuple[list[Hit], int]:
     """Ask AudD, a second recogniser with a different catalogue.
 
@@ -339,6 +352,7 @@ def recognise_audd(clip: str, duration: float, rates: list[float] | None = None,
         req = urllib.request.Request(AUDD_URL, data=body, headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": "songfinder/0.1"})
         answer = cached_answer("audd", wav)
+        if answer is not None and on_attempt:on_attempt("cache_hits")
         if answer is None:
             if REQUEST_GATE and not REQUEST_GATE("audd"):
                 if on_issue:on_issue("audd","budget")
@@ -348,9 +362,13 @@ def recognise_audd(clip: str, duration: float, rates: list[float] | None = None,
                 if on_issue:on_issue('audd','budget')
                 break
             calls += 1
+            if on_attempt:on_attempt("calls")
             try:
                 with urllib.request.urlopen(req, timeout=min(60,max(1,remaining())) if remaining else 60) as resp:
                     answer = _json.loads(resp.read())
+                if on_attempt:on_attempt("responses")
+            except budget.Expired:
+                raise
             except Exception as e:
                 if on_issue:on_issue('audd','unavailable')
                 log(f"  AudD request failed ({type(e).__name__}: {e})")
@@ -362,6 +380,7 @@ def recognise_audd(clip: str, duration: float, rates: list[float] | None = None,
             log(f"  AudD refused: {str(answer.get('error'))[:120]}")
             break
         h = _audd_hit(answer.get("result"), mode, rate, start)
+        if on_attempt:on_attempt('hits' if h else 'no_match')
         if h:
             log(f"  AudD: \"{h.title}\" by {h.artist}  (clip at {start:.0f} s, "
                 f"corrected for {rate * 100:.0f}% speed by {mode})")

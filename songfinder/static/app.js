@@ -156,7 +156,7 @@ function render(j){
     $("rmsg").textContent=notes.join(" ");$("rmsg").hidden=!notes.length;
   }else{
     const copy=noMatchCopy[j.verdict]||noMatchCopy.none;
-    $("tag").textContent="";$("rtitle").textContent=copy[0];$("rmsg").textContent=copy[1];$("rmsg").hidden=!copy[1];
+    $("tag").textContent="";$("rtitle").textContent=copy[0];$("rmsg").textContent=j.message||copy[1];$("rmsg").hidden=!copy[1];
     if(j.verdict==="error"&&j.error_kind!=="file"){
       $("rtitle").textContent="We couldn't finish checking";$("rmsg").textContent=j.message||"Please try again in a few minutes.";$("rmsg").hidden=false;
     }

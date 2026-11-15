@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import scipy.fft
+from . import budget
 
 from .features import BPO, FPS, half_rate
 
@@ -227,6 +228,7 @@ class Query:
                 continue
             found = []
             for ri, rate in enumerate(self.rates):
+                budget.check()
                 q = self.W[wi][ri]
                 n = q.shape[1]
                 if n > tr:
@@ -326,6 +328,7 @@ class Query:
         def search(rp, rates, centres):
             best = (-1.0, fit.rate, fit.offset)
             for r in rates:
+                budget.check()
                 for c in centres:
                     off = c - r * tc
                     s, _ = self._sim(rp, r, off, discovery=True)
@@ -438,7 +441,7 @@ class Query:
         """Full evaluation. With `quick`, first test a third of the windows and stop
         if none of them finds anything; used when scanning hundreds of references."""
         n = len(self.windows)
-        if quick and n >= 5:
+        if quick and n >= 3:
             sample = self.screen(ref, only=list(range(1, n, 3)))
             if max((h.score for h in sample), default=0.0) < QUICK_REJECT:
                 return Evaluation("none", self.consensus(sample))

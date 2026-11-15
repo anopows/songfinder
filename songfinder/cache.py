@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from .features import FEATURE_VERSION
+from . import budget
 
 
 class FeatureCache:
@@ -49,6 +50,7 @@ class FeatureCache:
             return
         for folder, _, files in os.walk(self.root):
             for name in files:
+                budget.check()
                 if not name.endswith(".npz"):
                     continue
                 try:
@@ -71,6 +73,8 @@ class FeatureCache:
         try:
             return [m for m in LandmarkIndex(self.root).shortlist(feats, limit)
                     if os.path.isfile(self._path(m['key']))]
+        except budget.Expired:
+            raise
         except Exception:
             return []  # retrieval is optional; never let it disable verification
 

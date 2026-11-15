@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, time
 from dataclasses import dataclass
 from types import SimpleNamespace
-from . import cli, recognise
+from . import cli, recognise, budget
 from .cache import FeatureCache
 from .links import Spotify
 from .sources import DEFAULT_SOURCES
@@ -31,9 +31,12 @@ def identify_clip(audio_path, *, title=None, artist=None, options=None, on_event
         if on_event:on_event({'type':'progress','detail':message})
     def partial(q,ranked,notes):
         data={'provider_issues':notes.get('provider_issues',[]),'clip_seconds':q.duration,'route':notes['route'],'shazam_hints':notes['hints'],
-              'fingerprints_sent':notes['fingerprints'],'results':[cli.result_dict(r) for r in ranked if not r.skipped]}
+              'fingerprints_sent':notes['fingerprints'],'audd_calls':notes.get('audd_calls',0),
+              'recognition':notes.get('recognition',{}),'stages':notes.get('stages',[]),
+              'search_limits':notes.get('search_limits',[]),'results':[cli.result_dict(r) for r in ranked if not r.skipped]}
         if on_result:on_result(data)
-    ranked,q,notes,_=cli.run_identify(a,str(audio_path),cache,list(options.sources),log=log,on_result=partial,should_stop=stopped,remaining=remaining)
+    with budget.limit(options.seconds):
+        ranked,q,notes,_=cli.run_identify(a,str(audio_path),cache,list(options.sources),log=log,on_result=partial,should_stop=stopped,remaining=remaining)
     partial(q,ranked,notes)
     data=cli._report(str(audio_path),q,ranked,notes,title,cache,Spotify())
     data['provider_issues']=notes.get('provider_issues',[])

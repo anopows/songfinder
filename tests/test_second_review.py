@@ -43,7 +43,7 @@ def test_full_scan_cannot_starve_speed_or_fallback_recognition(monkeypatch):
     monkeypatch.setattr(cli,'recognise_audd',lambda *a,**k:stages.append('fallback') or ([],1))
     monkeypatch.setattr(cli,'identify',lambda *a,**k:stages.append('full scan') or [])
     cli.run_identify(options(),'public.wav',cache,[],log=lambda s:None)
-    assert stages==['original','corrected','fallback','full scan']
+    assert stages==['original','fallback','corrected','full scan']
 
 def test_expanded_bandcamp_query_discovers_rare_track_and_filters_title(monkeypatch):
     calls=[]

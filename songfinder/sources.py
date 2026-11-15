@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+from . import budget
 import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
@@ -226,7 +227,7 @@ class YtDlp:
         last_error = ""
         for query in queries:
             p = subprocess.run(["yt-dlp", "--flat-playlist", "--dump-single-json", "--no-warnings",
-                                f"{self.prefix}{limit}:{query}"], capture_output=True, timeout=120)
+                                f"{self.prefix}{limit}:{query}"], capture_output=True, timeout=budget.timeout(120))
             if p.returncode != 0:
                 err = p.stderr.decode("utf-8", "replace").strip().splitlines()
                 last_error = err[-1] if err else "search failed"
@@ -259,7 +260,7 @@ class YtDlp:
         if not c.title:                              # links given by the user carry no metadata
             m = subprocess.run(["yt-dlp", "--no-warnings", "--no-playlist", "--skip-download",
                                 "--print", "%(title)s\t%(uploader)s\t%(duration)s", c.url],
-                               capture_output=True, timeout=90)
+                               capture_output=True, timeout=budget.timeout(90))
             parts = m.stdout.decode("utf-8", "replace").strip().rsplit("\t", 2)
             if len(parts) == 3:
                 c.title, c.artist = parts[0], c.artist or parts[1]
@@ -269,7 +270,7 @@ class YtDlp:
                     pass
         p = subprocess.run(["yt-dlp", "-f", "bestaudio[ext=webm]/bestaudio/best", "--no-warnings",
                             "--no-playlist", "--no-progress", "--max-filesize", "40M",
-                            "-o", "-", c.url], capture_output=True, timeout=240)
+                            "-o", "-", c.url], capture_output=True, timeout=budget.timeout(240))
         if p.returncode != 0 or len(p.stdout) < 20000:
             err = p.stderr.decode("utf-8", "replace").strip().splitlines()
             raise NoAudio(err[-1] if err else "no audio returned")

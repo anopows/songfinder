@@ -15,7 +15,7 @@ from .cache import FeatureCache
 from .features import BPO
 from .matcher import Query, describe_speed
 from .pipeline import Result, evaluate_candidate, gather, identify, prepare_query, rank
-from . import recognise as recognise_mod
+from . import recognise as recognise_mod, budget
 from .links import HOW_TEXT, Spotify, build_links, format_links
 from .recognise import RATES, clean_title, recognise, recognise_audd
 
@@ -178,12 +178,45 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
          f"speeds {q.rates[0] * 100:.0f}%-{q.rates[-1] * 100:.0f}%")
     ranked: list[Result] = []
     seen: set[str] = set()
-    notes = {"route": "", "hints": [], "fingerprints": 0, "links": [], "audd_calls": 0, "provider_issues": []}
+    notes = {"route": "", "hints": [], "fingerprints": 0, "links": [], "audd_calls": 0, "provider_issues": [], "recognition": {}, "stages": [], "search_limits": []}
     def issue(source,kind):
         value={'source':source,'kind':kind}
         if value not in notes['provider_issues']:notes['provider_issues'].append(value)
+    def publish():
+        if on_result:
+            on_result(q, ranked, notes)
+
+    @contextlib.contextmanager
+    def stage(label, seconds):
+        started = time.monotonic()
+        limited = False
+        try:
+            with budget.limit(min(seconds, remaining())) if remaining else contextlib.nullcontext():
+                yield
+                budget.check()
+        except budget.Expired:
+            limited = True
+            notes['search_limits'].append(label)
+            emit(f'  Time reserved for {label} is used; continuing with other stages')
+        finally:
+            notes['stages'].append({'name': label, 'seconds': round(time.monotonic()-started, 2), 'limited': limited})
+            publish()
+
     def catalogue(title,artist):
-        return gather(title,artist,sources,emit,on_issue=issue)
+        found = []
+        with stage('catalogue discovery', 25):
+            found = gather(title,artist,sources,emit,on_issue=issue)
+        return found
+
+    def recognition_event(provider):
+        stats = notes['recognition'].setdefault(provider, {'calls': 0, 'responses': 0, 'cache_hits': 0})
+        def record(event):
+            stats[event] = stats.get(event, 0) + 1
+            if event == 'calls':
+                key = 'audd_calls' if provider == 'audd' else 'fingerprints'
+                notes[key] += 1
+            publish()
+        return record
     searched_titles: set[str] = set()
 
     def check(candidates, label: str, route: str, quick: bool = False, cached: bool = False, title_only: bool = False) -> None:
@@ -207,8 +240,18 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
             return
         had = found()
         emit(f"Checking {len(fresh)} candidates ({label}):")
-        ranked = rank(ranked + identify(q, fresh, cache, workers=a.workers,
-                                        exhaustive=a.exhaustive, quick=quick, log=emit, on_issue=issue))
+        def completed(result):
+            nonlocal ranked
+            ranked = rank(ranked + [result])
+            if result.decision == 'exact':
+                notes['route'] = route
+            publish()
+        with stage(label, 30 if cached else 40):
+            batch = identify(q, fresh, cache, workers=a.workers,
+                             exhaustive=a.exhaustive, quick=quick, log=emit,
+                             on_issue=issue, on_result=completed)
+            # Some callers replace identify (e.g. offline evaluation tools).
+            ranked = rank(ranked + [r for r in batch if not any(r is x for x in ranked)])
         if found() and not had:
             notes["route"] = route
         if on_result:
@@ -249,19 +292,30 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
             return
         emit(f"Asking Shazam, {label} (fingerprints only, no audio is sent):")
         try:
-            hits, calls = recognise(clip, q.duration, rates=rates, max_calls=budget, log=emit,
-                                    patience=patience,on_issue=issue,remaining=remaining)
+            before = notes['fingerprints']
+            hits = []
+            with stage('Shazam '+label, 45):
+                stage_remaining = lambda: recognise_mod.time_remaining(remaining)
+                hits, calls = recognise(clip, q.duration, rates=rates, max_calls=budget, log=emit,
+                    patience=0 if remaining else patience, on_issue=issue, remaining=stage_remaining,
+                    on_attempt=recognition_event('shazam'))
+                notes['fingerprints'] = max(notes['fingerprints'], before+calls)
         except RuntimeError as e:
             issue('shazam','unavailable')
             emit(f"  {e}")
             return
-        notes["fingerprints"] += calls
         follow(hits)
 
     def ask_audd() -> None:
         emit("Asking AudD (sends a 15 s audio excerpt):")
-        hits, calls = recognise_audd(clip, q.duration, rates=[0.9, 1.1], max_calls=a.audd_calls, log=emit,on_issue=issue,remaining=remaining)
-        notes["audd_calls"] = notes.get("audd_calls", 0) + calls
+        hits = []
+        before = notes['audd_calls']
+        with stage('AudD fallback', 35):
+            hits, calls = recognise_audd(clip, q.duration, rates=[0.9, 1.1], max_calls=a.audd_calls,
+                log=emit, on_issue=issue, remaining=lambda: recognise_mod.time_remaining(remaining),
+                on_attempt=recognition_event('audd'))
+            notes['audd_calls'] = max(notes['audd_calls'], before+calls)
+        publish()
         follow(hits)
 
     def follow(hits) -> None:
@@ -318,9 +372,11 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         given += got
     check(given, "your links", "your links")
     if not found():
-        check(index(entries=cache.shortlist(q.F)), "fingerprint shortlist", "local fingerprints", cached=True)
+        with stage("fingerprint retrieval", 10):
+            check(index(entries=cache.shortlist(q.F)), "fingerprint shortlist", "local fingerprints", cached=True)
     if a.title and not found():
-        check(index(a.title), "local index entries for the title", "local index", quick=True, cached=True)
+        with stage("title index", 35):
+            check(index(a.title), "local index entries for the title", "local index", quick=True, cached=True)
     if a.title and sources and not found():
         emit(f'Searching for "{a.title}"' + (f" by {a.artist}" if a.artist else "") + ":")
         check(catalogue(a.title, a.artist), "catalogue search", "title search",
@@ -330,16 +386,17 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
     # 2. Cheapest first: one round of Shazam on the unmodified clip (a few seconds).
     if use_shazam and not found():
         ask_shazam([1.0], min(3, a.shazam_calls), "clip as recorded", patience=1)
+    # Give the independent provider a turn before slow speed retries.
+    if a.audd and not found():
+        ask_audd()
     # 4. Still nothing: Shazam again with the clip corrected for other speeds.
     if use_shazam and not found():
         ask_shazam(RATES[1:], a.shazam_calls - notes["fingerprints"], "speed-corrected")
-    # 5. Shazam does not know it: a second recogniser with another catalogue.
-    if a.audd and not found():
-        ask_audd()
     # Broad offline fallback comes last: it must never starve recognition.
     # 3. Everything matched before: the local index. No network, any speed.
     if not found() and (a.index or not (a.title or given)):
-        check(index(), "recordings already in the local index", "local index", quick=True, cached=True)
+        with stage("local index fallback", 40):
+            check(index(), "recordings already in the local index", "local index", quick=True, cached=True)
     if not notes["route"] and any(r.decision in ("exact", "probable") for r in ranked):
         notes["route"] = "preview only"
     return ranked, q, notes, bool(seen)
@@ -358,8 +415,14 @@ def _report(clip: str, q: Query, ranked: list[Result], notes: dict, title, cache
     data = {"clip": os.path.basename(clip), "clip_seconds": round(q.duration, 2),
             "title": title, "bands_per_octave": BPO, "route": notes["route"],
             "provider_issues": notes.get("provider_issues",[]), "shazam_hints": notes["hints"], "fingerprints_sent": notes["fingerprints"],
+            "audd_calls": notes.get("audd_calls", 0), "recognition": notes.get("recognition", {}),
+            "stages": notes.get("stages", []), "search_limits": notes.get("search_limits", []),
             "results": [result_dict(r) for r in ranked if not r.skipped]}
-    data.update(build_links(data, q, cache, spotify, _log))
+    try:
+        with budget.limit(15):
+            data.update(build_links(data, q, cache, spotify, _log))
+    except budget.Expired:
+        data.setdefault("search_limits", []).append("listening links")
     return data
 
 

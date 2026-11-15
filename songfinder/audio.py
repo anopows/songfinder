@@ -9,6 +9,7 @@ import os
 import subprocess
 
 import numpy as np
+from . import budget
 
 SR = 22050
 USER_AGENT = "songfinder/0.1 (local music matching tool)"
@@ -46,7 +47,7 @@ def decode(source: str | bytes, sr: int = SR, max_seconds: float | None = None,
         cmd += ["-t", f"{max_seconds:.3f}"]
     cmd += ["-f", "f32le", "pipe:1"]
     try:
-        p = subprocess.run(cmd, input=data, capture_output=True, timeout=timeout)
+        p = subprocess.run(cmd, input=data, capture_output=True, timeout=budget.timeout(timeout))
     except FileNotFoundError as e:
         raise DecodeError("FFmpeg is not installed or not on PATH") from e
     except subprocess.TimeoutExpired as e:

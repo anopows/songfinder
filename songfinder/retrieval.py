@@ -8,6 +8,7 @@ from contextlib import closing
 import hashlib, json, math, sqlite3
 from pathlib import Path
 import numpy as np
+from . import budget
 from scipy.ndimage import maximum_filter
 from .features import BPO, FPS, FEATURE_VERSION
 
@@ -71,8 +72,10 @@ class LandmarkIndex:
         with closing(self.connect()) as c:
             keys=list(query)
             for a in range(0,len(keys),300):
+                budget.check()
                 batch=keys[a:a+300]
                 for h,rid,t,b,dt in c.execute('SELECT * FROM hashes WHERE h IN ('+','.join('?'*len(batch))+')',batch):
+                    budget.check()
                     for qt,qb,qdt in query[h]:
                         rate=dt/qdt
                         if not .69<=rate<=1.42 or abs(b-qb)>18:continue

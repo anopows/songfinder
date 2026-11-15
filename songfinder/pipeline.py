@@ -4,6 +4,8 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextvars import copy_context
+from . import budget
 from dataclasses import dataclass
 from typing import Callable
 
@@ -48,7 +50,7 @@ def _decode_stream(stream) -> np.ndarray:
             return decode(stream, max_seconds=MAX_REFERENCE_SECONDS)
         except DecodeError as e:
             if remote and attempt == 0 and any(code in str(e) for code in ("429", "503")):
-                time.sleep(8)
+                budget.sleep(8)
                 continue
             raise
     raise RuntimeError("unreachable")
@@ -80,6 +82,8 @@ def evaluate_candidate(query: Query, c: Candidate, cache: FeatureCache, quick: b
         evaluation=query.evaluate(feats,quick=quick)
         if evaluation.decision=='exact':cache.protect(c.key)
         return Result(c,evaluation,cached=cached)
+    except budget.Expired:
+        raise
     except Blocked as e:
         return Result(c, error=f"blocked: {e}",issue="blocked")
     except NoAudio as e:
@@ -95,12 +99,19 @@ def gather(title: str, artist: str | None, sources: list[str],
 
     def run(name: str):
         try:
+            budget.check()
             return name, SOURCES[name].search(title, artist), ""
+        except budget.Expired:
+            raise
         except Exception as e:
             return name, [], f"{type(e).__name__}: {e}"
 
     with ThreadPoolExecutor(max_workers=max(1, len(sources))) as pool:
-        for name, cands, err in pool.map(run, sources):
+        for future in as_completed([pool.submit(copy_context().run, run, name) for name in sources]):
+            try:
+                name, cands, err = future.result()
+            except budget.Expired:
+                continue
             found[name] = cands
             if err and on_issue:on_issue(name,"catalogue_unavailable")
             log(f"  {name:<10} {len(cands):>4} candidates" + (f"   ({err})" if err else ""))
@@ -116,7 +127,7 @@ def gather(title: str, artist: str | None, sources: list[str],
 
 def identify(query: Query, candidates: list[Candidate], cache: FeatureCache,
              workers: int = 4, exhaustive: bool = False, quick: bool = False,
-             log: Callable[[str], None] = lambda s: None, on_issue=None) -> list[Result]:
+             log: Callable[[str], None] = lambda s: None, on_issue=None, on_result=None) -> list[Result]:
     """Evaluate candidates; stop at the first exact match unless `exhaustive`.
 
     `quick` is for long, unfocused lists (the whole index, every version of a title).
@@ -130,6 +141,7 @@ def identify(query: Query, candidates: list[Candidate], cache: FeatureCache,
     def work(c: Candidate) -> Result:
         if stop.is_set():
             return Result(c, skipped=True)
+        budget.check()
         result=evaluate_candidate(query,c,cache,quick=quick)
         if result.issue and on_issue:on_issue(c.source,result.issue)
         return result
@@ -137,17 +149,24 @@ def identify(query: Query, candidates: list[Candidate], cache: FeatureCache,
     results: list[Result] = []
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(work, c) for c in todo]
+        futures = [pool.submit(copy_context().run, work, c) for c in todo]
         done = 0
-        for fut in as_completed(futures):
-            r = fut.result()
-            results.append(r)
-            if r.skipped:
-                continue
-            done += 1
-            log(_progress_line(done, len(todo), r))
-            if r.decision == "exact" and not exhaustive:
-                stop.set()
+        try:
+            for fut in as_completed(futures):
+                r = fut.result()
+                results.append(r)
+                if r.skipped:
+                    continue
+                if on_result:
+                    on_result(r)
+                done += 1
+                log(_progress_line(done, len(todo), r))
+                if r.decision == "exact" and not exhaustive:
+                    stop.set()
+        finally:
+            stop.set()
+            for fut in futures:
+                fut.cancel()
 
     winner = best(results)
     if winner and winner.decision == "exact" and not exhaustive:

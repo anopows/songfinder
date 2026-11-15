@@ -27,6 +27,8 @@ def _summarise(report: dict) -> dict:
     if not rs:
         if any(r.get('decision')=='related' for r in report.get('results',[])):
             return {'verdict':'related','message':'We found a similar arrangement, but could not confirm the same recording. Add the performer or title to try again.'}
+        if report.get('search_limits'):
+            return {'verdict':'unavailable','message':'We checked several recordings but reached the comparison limit without a match. Add a title or performer to focus the next search.'}
         if any(isinstance(issue,dict) and issue.get('kind') for issue in report.get('provider_issues',[])):
             return {'verdict':'unavailable','message':'Some music services were unavailable or at their request limit. We could not confirm a recording. Please retry later.'}
         if report.get('shazam_hints'):
