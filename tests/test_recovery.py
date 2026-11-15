@@ -89,3 +89,14 @@ def test_historical_result_is_relabelled_from_confirmed_report(client):
             'shazam_hints':[{'title':'A Song','artist':'Wrong Band'}]}
     store.update(jid,report=json.dumps(report),result=json.dumps({'verdict':'exact','artist':'Wrong Band'}))
     assert client.get('/api/clips/'+jid).json()['artist']=='Right Band'
+
+
+def test_tune_lead_survives_search_timeout(client, monkeypatch):
+    jid=retained(client)
+    lead={'verdict':'tune','title':'A Song','reference_artist':'Reference Band'}
+    store.update(jid,result=json.dumps(lead))
+    def timeout(*args, **kwargs):raise TimeoutError('deadline')
+    monkeypatch.setattr(worker,'run_bounded',timeout)
+    worker.process(store.get(jid))
+    saved=store.get(jid)
+    assert saved['status']=='done' and json.loads(saved['result'])==lead

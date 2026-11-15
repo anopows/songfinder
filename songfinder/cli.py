@@ -22,7 +22,7 @@ from .recognise import RATES, clean_title, recognise, recognise_audd
 LINK_SEARCH_LIMIT = 40       # candidates checked when hunting a full-length copy
 VERSION_SEARCH_LIMIT = 120   # candidates checked across other versions of a title
 from .sources import (DEFAULT_SOURCES, SOURCES, Candidate, candidate_from_ref,
-                      artist_variants, candidates_from_text, clean_channel, title_matches)
+                      artist_variants, candidates_from_text, clean_channel, title_matches, tokens)
 
 
 def _mmss(t: float) -> str:
@@ -51,7 +51,7 @@ def result_dict(r: Result) -> dict:
     c = r.candidate
     d = {"source": c.source, "url": c.url, "title": c.title, "artist": c.artist, "album": c.album,
          "released": c.released, "duration_s": c.duration, "audio": c.audio_kind,
-         "decision": r.decision, "error": r.error or None, "skipped": r.skipped}
+         "decision": r.decision, "error": r.error or None, "skipped": r.skipped, "tune": r.tune}
     ev = r.evaluation
     if ev and ev.fit:
         d["windows_on_one_line"] = ev.fit.n_windows
@@ -226,6 +226,9 @@ def run_identify(a, clip: str, cache: FeatureCache, sources: list[str], *, log=N
         for c in candidates:
             if c.key not in seen:
                 fresh.append(c)
+        if getattr(a, "artist", None):
+            wanted_artist = set(tokens(a.artist))
+            fresh.sort(key=lambda c: len(wanted_artist & set(tokens(c.artist))), reverse=True)
         # The network candidate cap must not discard known reference recordings.
         # Cached comparisons remain bounded by the job's wall-clock deadline.
         if a.max_candidates and not cached:

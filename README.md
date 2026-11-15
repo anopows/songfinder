@@ -38,6 +38,13 @@ live version, or reissue can sound similar but be a different recorded performan
    time spent waiting in the queue is additional.
 4. Listen to the proposed recording and use **Yes / No** to give feedback. Use **Search again** to try a different clue without uploading again.
 
+If no recording is confirmed, **Possible song** can suggest a tune from a different
+performance. It compares ordered musical phrases with shuffled controls, using
+20–120 second clips in the same key and references already found by the search.
+This limited fallback does not identify the clip’s performer or establish its
+speed and position; the displayed artist belongs to the comparison recording.
+A title or performer clue can help it find an appropriate reference.
+
 A match identifies a recorded performance; it does not promise a particular mastering,
 pressing, audio quality, or availability in your country. Difficult clips can remain unresolved.
 

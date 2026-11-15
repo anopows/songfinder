@@ -70,3 +70,12 @@ test('no-match copy opens retained-audio clues and hides match cards',async()=>{
  vm.runInContext('render({id:"test",status:"done",verdict:"none",can_retry:true,steps:[]})',e.sandbox);
  assert.equal(e.node('rtitle').textContent,"We couldn't find this one");assert.equal(e.node('retry').open,true);assert.equal(e.node('facts').hidden,true);
 });
+test('tune lead names the comparison recording and hides exact timing facts',async()=>{
+ const e=await environment();
+ vm.runInContext('render({id:"test",status:"done",verdict:"tune",title:"A Song",reference_artist:"Reference Band",reference_url:"https://example.test/track",message:"Compare this tune",can_retry:true,steps:[]})',e.sandbox);
+ assert.equal(e.node('tag').textContent,'Possible song');
+ assert.equal(e.node('rtitle').textContent,'A Song');
+ assert.equal(e.node('rartist').textContent,'Compared with a recording by Reference Band');
+ assert.equal(e.node('facts').hidden,true);
+ assert.equal(e.node('element').href,'https://example.test/track');
+});

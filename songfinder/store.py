@@ -98,7 +98,7 @@ def finish(c, jid, *, result=None, outcome=None, now=None, timed=True):
     try: verdict=json.loads(stored).get('verdict','other')
     except (ValueError, AttributeError): verdict='other'
     verdict=outcome or verdict
-    if not isinstance(verdict,str) or verdict.lower() not in {'exact','probable','related','unavailable','unconfirmed','none','timeout','error','cancelled','upload_expired'}: verdict='other'
+    if not isinstance(verdict,str) or verdict.lower() not in {'exact','probable','related','unavailable','unconfirmed','tune','none','timeout','error','cancelled','upload_expired'}: verdict='other'
     else: verdict=verdict.lower()
     def record(con):
         kpi.bump(con,'job.done.'+verdict,now=now)

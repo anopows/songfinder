@@ -30,6 +30,7 @@ class Result:
     cached: bool = False
     skipped: bool = False
     issue: str = ""
+    tune: dict | None = None
 
     @property
     def decision(self) -> str:
@@ -81,7 +82,11 @@ def evaluate_candidate(query: Query, c: Candidate, cache: FeatureCache, quick: b
         feats, cached = reference_features(c, cache)
         evaluation=query.evaluate(feats,quick=quick)
         if evaluation.decision=='exact':cache.protect(c.key)
-        return Result(c,evaluation,cached=cached)
+        tune = None
+        if evaluation.decision not in ('exact', 'probable'):
+            from .tune import compare
+            tune = compare(query.F, feats)
+        return Result(c,evaluation,cached=cached,tune=tune)
     except budget.Expired:
         raise
     except Blocked as e:

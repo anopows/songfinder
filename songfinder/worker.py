@@ -86,7 +86,7 @@ def process(job):
         result=json.loads(store.get(jid)['result'])
         if stage=='decode':
             result={'verdict':'error','error_kind':'file','message':'Reading the sound from this file took too long. Try a shorter video or an audio file.'}
-        elif result.get('verdict') not in ('exact','probable'):
+        elif result.get('verdict') not in ('exact','probable','tune'):
             result={'verdict':'timeout','message':'We reached the search time limit without confirming a match. Try a clearer clip or add the song title.'}
         store.update(jid,result=json.dumps(result),error=stage+' time limit reached')
     except Exception as exc:
@@ -109,7 +109,7 @@ def recover():
                 continue
             result=json.loads(j['result'])
             if j['cancel_requested']:result={'verdict':'cancelled','message':'This search was cancelled.'}
-            elif result.get('verdict') not in ('exact','probable'):result={'verdict':'error','message':'This search was interrupted. Try again with the retained audio if available.'}
+            elif result.get('verdict') not in ('exact','probable','tune'):result={'verdict':'error','message':'This search was interrupted. Try again with the retained audio if available.'}
             store.finish(c,j['id'],result=result,timed=False)
             (store.ROOT/'uploads'/j['id']).unlink(missing_ok=True)
 

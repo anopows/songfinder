@@ -32,7 +32,7 @@ def main(jid):
         identify_clip(store.ROOT/'audio'/f"{job['audio_id']}.m4a",title=job['hint'] or None,artist=job['artist'] or None,options=opts,on_event=event,on_result=result)
     except TimeoutError:
         current=json.loads(store.get(jid)['result'])
-        if current.get('verdict') not in ('exact','probable'):
+        if current.get('verdict') not in ('exact','probable','tune'):
             current={'verdict':'timeout','message':'We reached the search time limit. Add a title or performer and try again.'}
         store.update(jid,result=json.dumps(current),error='Search time limit reached')
 

@@ -46,7 +46,7 @@ async function start(){
   if(id){show("work");poll()}else{show("home");recent()}
  }catch(e){fail("The service is unavailable. Please refresh in a moment.")}
 }
-const verdictLabel=v=>({exact:"Exact match",probable:"Likely match",none:"No match",related:"Different recording",unconfirmed:"Unconfirmed",unavailable:"Checking incomplete",timeout:"Out of time",cancelled:"Cancelled",error:"File problem"})[v]||"Searching";
+const verdictLabel=v=>({exact:"Exact match",probable:"Likely match",none:"No match",related:"Different recording",tune:"Possible song",unconfirmed:"Unconfirmed",unavailable:"Checking incomplete",timeout:"Out of time",cancelled:"Cancelled",error:"File problem"})[v]||"Searching";
 async function recent(){
  let items=[];try{items=JSON.parse(localStorage.getItem("sf_recent")||"[]")}catch(e){}
  items=await Promise.all(items.filter(item=>/^[A-Za-z0-9_-]{22}$/.test(item.id)).map(async item=>{
@@ -154,6 +154,12 @@ function render(j){
     if(j.preview_only)notes.push("Checked against a short sample, not the full track.");
     if(j.verdict==="probable")notes.push("This sounds like the same recording, but we couldn't confirm it. Have a listen.");
     $("rmsg").textContent=notes.join(" ");$("rmsg").hidden=!notes.length;
+  }else if(j.verdict==="tune"){
+    $("tag").textContent="Possible song";$("tag").style.color="var(--warm)";
+    $("rtitle").textContent=j.title;$("rartist").textContent=j.reference_artist?"Compared with a recording by "+j.reference_artist:"";
+    $("rmsg").textContent=j.message;$("rmsg").hidden=false;
+    if(/^https?:\/\//.test(j.reference_url||"")){const a=document.createElement("a");a.className="btn brass";a.href=j.reference_url;a.rel="noopener noreferrer";a.target="_blank";a.textContent="Compare reference recording";$("links").append(a)}
+    $("retry").open=true;
   }else{
     const copy=noMatchCopy[j.verdict]||noMatchCopy.none;
     $("tag").textContent="";$("rtitle").textContent=copy[0];$("rmsg").textContent=j.message||copy[1];$("rmsg").hidden=!copy[1];

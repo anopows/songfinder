@@ -25,6 +25,13 @@ def _summarise(report: dict) -> dict:
     rs.sort(key=lambda r: (order[r["decision"]], r["decision"] == "exact" and r.get("audio") == "full",
                            r.get("similarity", 0)), reverse=True)
     if not rs:
+        tunes = [r for r in report.get('results', []) if r.get('tune') and not r.get('error')]
+        tunes.sort(key=lambda r: r['tune']['phrase_order_gain'], reverse=True)
+        if tunes:
+            top = tunes[0]
+            return {'verdict':'tune', 'title':top['title'],
+                    'reference_artist':top.get('artist',''), 'reference_url':top['url'],
+                    'message':'The musical phrases resemble this song, but we could not confirm the same recording. Compare the reference below.'}
         if any(r.get('decision')=='related' for r in report.get('results',[])):
             return {'verdict':'related','message':'We found a similar arrangement, but could not confirm the same recording. Add the performer or title to try again.'}
         if report.get('search_limits'):
