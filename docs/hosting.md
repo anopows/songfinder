@@ -1,5 +1,13 @@
 # Hosting Songfinder
 
+## Current beta notices — 15 November 2026
+
+Terms, Privacy and Legal/Contact pages are now public at `/terms`, `/privacy` and `/legal`. The owner explicitly declined hiring a lawyer and authorized a best-effort launch; the professional-review gate in older rollout notes is superseded. This is not a claim of legal approval. No residential address was published and no host upgrade was purchased. Songfinder remains public, free and without accounts; its application source and recognition settings were not changed by this configuration rollout.
+
+Five·Six opened a 100-account beta at 21:33 UTC. Both public sites and all six notices passed verification; the Songfinder example remained available. A fresh encrypted three-database backup was verified on the Mac before rollout. The owner still needs to review/accept the Hetzner DPA personally if agreeable, cover the abuse mailbox/report list and review the first 14 days of operation. Operational and suspected-illegal-content procedures are documented in Five·Six `deploy/BETA_OPERATIONS.md`; do not copy suspected material into email or Mac backups. Google basic identity scopes qualify for the documented Testing allowlist exception; no production-console change is claimed.
+
+The older rollout sections below are historical where they state public notices remain unpublished or that a lawyer is a mandatory release gate.
+
 The public site is https://songfinder.andi.sh. These instructions describe an independent
 installation. They contain no configuration or credentials for that service.
 
