@@ -307,7 +307,8 @@ def _audd_hit(result: dict, mode: str, rate: float, start: float) -> Hit | None:
 
 
 def recognise_audd(clip: str, duration: float, rates: list[float] | None = None, max_calls: int = 3,
-                   token: str | None = None, log: Callable[[str], None] = lambda s: None
+                   token: str | None = None, log: Callable[[str], None] = lambda s: None,
+                   on_issue=None, remaining=None
                    ) -> tuple[list[Hit], int]:
     """Ask AudD, a second recogniser with a different catalogue.
 
